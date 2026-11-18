@@ -14,6 +14,11 @@
 + (BOOL)progressBar;
 + (BOOL)transparentCommnet;
 + (BOOL)showUsername;
++ (BOOL)hideCommentUsernames;
++ (BOOL)hideCommentAvatars;
++ (BOOL)hideVideoUsernames;
++ (BOOL)hideVideoAvatars;
++ (BOOL)hideMusicDisc;
 + (BOOL)disablePullToRefresh;
 + (BOOL)disableUnsensitive;
 + (BOOL)disableWarnings;
