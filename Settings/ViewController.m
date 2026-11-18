@@ -71,7 +71,7 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case 0: return 15;
+        case 0: return 20;
         case 1: return 4;
         case 2: return 4;
         case 3: return 10;
@@ -103,6 +103,11 @@
             case 12: return [self createSwitchCellWithTitle:@"Disable Live Streaming" Detail:@"Disable live video streaming" Key:@"disable_live"];
             case 13: return [self createSwitchCellWithTitle:@"Skip Recommendations" Detail:@"Skip recommended videos" Key:@"skip_recommnedations"];
             case 14: return [self createSwitchCellWithTitle:@"Upload Region" Detail:@"Show Upload Region Flag Next to Username" Key:@"upload_region"];
+            case 15: return [self createSwitchCellWithTitle:@"Hide Comment Usernames" Detail:@"Hide author names in comment rows; comments stay readable" Key:@"hide_comment_usernames"];
+            case 16: return [self createSwitchCellWithTitle:@"Hide Comment Profile Pictures" Detail:@"Hide avatars beside comments" Key:@"hide_comment_avatars"];
+            case 17: return [self createSwitchCellWithTitle:@"Hide Video Usernames" Detail:@"Hide creator names on feed posts" Key:@"hide_video_usernames"];
+            case 18: return [self createSwitchCellWithTitle:@"Hide Video Profile Pictures" Detail:@"Hide the creator avatar on the right of the feed" Key:@"hide_video_avatars"];
+            case 19: return [self createSwitchCellWithTitle:@"Hide Music Disc" Detail:@"Hide the spinning music/profile disc at the bottom right" Key:@"hide_music_disc"];
         }
     } else if (indexPath.section == 1) {
         switch (indexPath.row) {
