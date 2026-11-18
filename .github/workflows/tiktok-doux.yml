@@ -9,37 +9,73 @@ on:
         required: true
         type: string
       tweak_url:
-        description: "URL to the Doux tweak file (.deb)"
+        description: "Optional prebuilt DouX .deb; leave blank to compile your fork"
         default: ""
-        required: true
+        required: false
         type: string
 
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2.0'
+          xcode-version: 'latest-stable'
 
       - name: Hide Sensitive Inputs
         uses: levibostian/action-hide-sensitive-inputs@v1
 
       - name: Download and Validate IPA
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
         run: |
-          wget "${{ inputs.ipa_url }}" --no-verbose -O ${{ github.workspace }}/tiktok.ipa
+          echo "::add-mask::$IPA_URL"
+          wget "$IPA_URL" --no-verbose -O "${{ github.workspace }}/tiktok.ipa"
           file_type=$(file --mime-type -b ${{ github.workspace }}/tiktok.ipa)
           if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
             echo "::error::Validation failed: The downloaded file is not a valid IPA. Detected type: $file_type."
             exit 1
           fi
 
-      - name: Download and Validate Tweak
+      - name: Setup Theos and iOS SDK
+        if: ${{ inputs.tweak_url == '' }}
         run: |
-          wget "${{ inputs.tweak_url }}" --no-verbose -O ${{ github.workspace }}/doux.deb
+          set -euo pipefail
+          brew install ldid xz
+          export THEOS="$RUNNER_TEMP/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks"
+          curl -fLsS \
+            https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz \
+            -o "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+          tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz" -C "$THEOS/sdks"
+          rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+
+      - name: Compile DouX from this branch
+        if: ${{ inputs.tweak_url == '' }}
+        run: |
+          set -euo pipefail
+          git apply scripts/compile_jgprogresshud.patch
+          if [ -d layout/DEBIAN ]; then mv layout/DEBIAN layout/DEBIAN.bak; fi
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ARCHS=arm64
+          find packages -name '*.deb' -type f -print
+          cp "$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)" doux.deb
+
+      - name: Download and Validate Tweak
+        if: ${{ inputs.tweak_url != '' }}
+        env:
+          TWEAK_URL: ${{ inputs.tweak_url }}
+        run: |
+          echo "::add-mask::$TWEAK_URL"
+          wget "$TWEAK_URL" --no-verbose -O "${{ github.workspace }}/doux.deb"
           file_type=$(file --mime-type -b ${{ github.workspace }}/doux.deb)
           if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
             echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."
@@ -76,6 +112,16 @@ jobs:
       - name: Create Patched Package
         run: ipapatch -input TikTok-Doux.ipa -output TikTok-Doux-patched.ipa
     
+      - name: Upload installable IPA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TikTok-DouX-custom-${{ github.run_number }}
+          path: |
+            TikTok-Doux.ipa
+            TikTok-Doux-patched.ipa
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2.0.1
         with:
