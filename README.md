@@ -19,6 +19,26 @@ A powerful iOS tweak that enhances your TikTok experience with additional featur
 - Region Spoofing: Access content from different countries
 - Enhanced Playback: Speed controls and auto-play options
 
+## Optional identity and music UI controls (fork)
+
+Under **DouX++ Settings > Feed**, five separate switches are available:
+
+- **Hide Comment Usernames** — hides the author-name label in supported comment cells.
+- **Hide Comment Profile Pictures** — hides comment avatar images and their border.
+- **Hide Video Usernames** — hides the feed author-name button.
+- **Hide Video Profile Pictures** — hides the feed's right-side author avatar element.
+- **Hide Music Disc** — hides the bottom-right rotating music disc, not the audio.
+
+These switches are off by default. They change the local interface only, not video or comment data. Reopen TikTok after changing a switch if a reused view does not refresh. Internal TikTok view classes can change between releases; verify behavior on your installed IPA version.
+
+### Building a sideloadable IPA using GitHub Actions
+
+1. Go to **Actions > Create IPA Packages > Run workflow**.
+2. Select your branch, paste a **decrypted TikTok IPA direct URL** into `ipa_url`, and leave `tweak_url` empty to compile this fork's latest code.
+3. If successful, find `TikTok-DouX-custom-<run number>` under the workflow's **Artifacts**. The draft Release may also have the IPA files.
+
+The workflow does not sign the IPA with your personal certificate; sign/install with a compatible sideloading tool. The URL must remain accessible to the GitHub runner. Do not publish private or sensitive signed download links in a public repository.
+
 ## Installation
 
 ### Requirements
