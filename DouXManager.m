@@ -44,6 +44,21 @@ static os_log_t douxmanager_log;
 + (BOOL)showUsername {
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"show_username"];
 }
++ (BOOL)hideCommentUsernames {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_comment_usernames"];
+}
++ (BOOL)hideCommentAvatars {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_comment_avatars"];
+}
++ (BOOL)hideVideoUsernames {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_video_usernames"];
+}
++ (BOOL)hideVideoAvatars {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_video_avatars"];
+}
++ (BOOL)hideMusicDisc {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_music_disc"];
+}
 + (BOOL)disablePullToRefresh {
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"pull_to_refresh"];
 }
