@@ -110,8 +110,31 @@ jobs:
             -s - -d --level Optimal
 
       - name: Create Patched Package
-        run: ipapatch -input TikTok-Doux.ipa -output TikTok-Doux-patched.ipa
+        run: ipapatch --plugins-only --input TikTok-Doux.ipa --output TikTok-Doux-patched.ipa
     
+      - name: Verify TikTok identity across IPA variants
+        run: |
+          python3 - <<'PY'
+          import plistlib
+          import zipfile
+
+          versions = []
+          for name in ("tiktok.ipa", "TikTok-Doux.ipa", "TikTok-Doux-patched.ipa"):
+              with zipfile.ZipFile(name) as archive:
+                  paths = [p for p in archive.namelist()
+                           if p.startswith("Payload/") and p.count("/") == 2
+                           and p.endswith(".app/Info.plist")]
+                  if not paths:
+                      raise RuntimeError(f"{name}: app Info.plist not found")
+                  data = plistlib.loads(archive.read(paths[0]))
+                  bundle_id = data.get("CFBundleIdentifier", "")
+                  app_version = data.get("CFBundleShortVersionString", "")
+                  print(f"{name}: bundle={bundle_id}; version={app_version}")
+                  versions.append((bundle_id, app_version))
+          if versions[0] != versions[1] or versions[0] != versions[2]:
+              raise RuntimeError("IPA patching unexpectedly changed TikTok's bundle ID/version")
+          PY
+
       - name: Upload installable IPA artifacts
         uses: actions/upload-artifact@v4
         with:
