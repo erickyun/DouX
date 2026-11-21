@@ -4,6 +4,7 @@
 #import "TikTokHeaders.h"
 #import <objc/runtime.h>
 #import <math.h>
+#import <objc/message.h>
 
 static char kDouXIdentityHiddenKey;
 
@@ -50,10 +51,58 @@ static BOOL DouXIdentityCommentAvatarCandidate(UIView *candidate, UIView *row) {
     return YES;
 }
 
+// A reply is indented further than a top-level comment. Find its muted
+// username label next to the avatar, without hiding its darker comment text.
+static BOOL DouXIdentityLooksLikeUsernameLabel(UILabel *label) {
+    if (!label || !label.text.length || label.text.length > 100 ||
+        label.numberOfLines > 1 || label.font.pointSize < 10.0 ||
+        label.font.pointSize > 18.0) return NO;
+    CGFloat red = 0, green = 0, blue = 0, alpha = 0;
+    UIColor *color = [label.textColor resolvedColorWithTraitCollection:label.traitCollection];
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha]) return NO;
+    CGFloat brightest = MAX(red, MAX(green, blue));
+    CGFloat darkest = MIN(red, MIN(green, blue));
+    return brightest - darkest < 0.20 && brightest >= 0.35 && brightest <= 0.87;
+}
+
+static BOOL DouXIdentityMaskNameNearAvatar(UIView *view, UIWindow *window,
+                                           CGRect avatar, NSUInteger depth) {
+    if (!view || depth > 7) return NO;
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        CGRect frame = [label convertRect:label.bounds toView:window];
+        BOOL nextToAvatar = CGRectGetMinX(frame) >= CGRectGetMaxX(avatar) + 2.0 &&
+            CGRectGetMinX(frame) < CGRectGetMaxX(avatar) + 42.0 &&
+            fabs(CGRectGetMidY(frame) - CGRectGetMidY(avatar)) < 23.0;
+        if (nextToAvatar && DouXIdentityLooksLikeUsernameLabel(label)) {
+            DouXIdentitySetHidden(label, [DouXManager hideCommentUsernames]);
+            return YES;
+        }
+    }
+    for (UIView *child in view.subviews) {
+        if (DouXIdentityMaskNameNearAvatar(child, window, avatar, depth + 1)) return YES;
+    }
+    return NO;
+}
+
+static void DouXIdentityMaskNearbyCommentName(UIImageView *avatarView) {
+    if (!avatarView.window || !avatarView.superview) return;
+    CGRect avatar = [avatarView convertRect:avatarView.bounds toView:avatarView.window];
+    UIView *parent = avatarView.superview;
+    // Search the closest comment sub-tree first. Do not look outside the
+    // containing comment table or collection and risk changing unrelated UI.
+    for (NSUInteger i = 0; parent && i < 9; i++, parent = parent.superview) {
+        if ([parent isKindOfClass:[UITableView class]] ||
+            [parent isKindOfClass:[UICollectionView class]]) break;
+        if (DouXIdentityMaskNameNearAvatar(parent, avatarView.window, avatar, 0)) break;
+    }
+}
+
 static void DouXIdentityScanCommentImages(UIView *view, UIView *row, NSUInteger depth) {
     if (!view || depth > 10) return;
     if (DouXIdentityCommentAvatarCandidate(view, row)) {
         DouXIdentitySetHidden(view, [DouXManager hideCommentAvatars]);
+        DouXIdentityMaskNearbyCommentName((UIImageView *)view);
     }
     for (UIView *child in view.subviews) {
         DouXIdentityScanCommentImages(child, row, depth + 1);
@@ -104,8 +153,9 @@ static BOOL DouXIdentityWithinFeedUI(UIView *view, BOOL *avatarNamed) {
 static void DouXIdentityApplyImageFallback(UIImageView *image) {
     BOOL hideComment = [DouXManager hideCommentAvatars];
     BOOL hideFeed = [DouXManager hideVideoAvatars];
+    BOOL hideNames = [DouXManager hideCommentUsernames];
     BOOL hiddenByUs = [objc_getAssociatedObject(image, &kDouXIdentityHiddenKey) boolValue];
-    if (!hideComment && !hideFeed && !hiddenByUs) return;
+    if (!hideComment && !hideFeed && !hideNames && !hiddenByUs) return;
     UIWindow *window = image.window;
     if (!window || !image.superview) return;
 
@@ -120,9 +170,10 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
 
     // Comment avatars remain on the leading edge of comment rows, even when
     // TikTok changes the private row subclass or image-view property.
-    if (CGRectGetMinX(rect) >= 0.0 && CGRectGetMinX(rect) < screenWidth * 0.12 &&
+    if (CGRectGetMinX(rect) >= 0.0 && CGRectGetMinX(rect) < screenWidth * 0.26 &&
         DouXIdentityWithinCommentUI(image)) {
         DouXIdentitySetHidden(image, hideComment);
+        DouXIdentityMaskNearbyCommentName(image);
         return;
     }
 
@@ -215,6 +266,29 @@ static id DouXIdentityElementForRow(UIView *row) {
         DouXIdentitySetHidden((UIView *)self, [DouXManager hideVideoAvatars]);
     } else if (musicRow) {
         DouXIdentitySetHidden((UIView *)self, [DouXManager hideMusicDisc]);
+    }
+}
+%end
+
+// Some recent TikTok versions render the creator avatar and follow badge in
+// a dedicated container rather than through AWEBaseElementView.
+%hook AWEPlayInteractionUserProfileContainerView
+- (void)layoutSubviews {
+    %orig;
+    DouXIdentitySetHidden((UIView *)self, [DouXManager hideVideoAvatars]);
+}
+- (void)setHidden:(BOOL)hidden {
+    if ([DouXManager hideVideoAvatars]) hidden = YES;
+    %orig(hidden);
+}
+%end
+
+// The optimized feed avatar element is separate from the regular one.
+%hook AWEPlayInteractionUserAvatarOptElementElement
+- (void)layoutElementView {
+    %orig;
+    if ([DouXManager hideVideoAvatars] && [(id)self respondsToSelector:@selector(setHide:)]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(self, @selector(setHide:), YES);
     }
 }
 %end
