@@ -164,6 +164,127 @@ static BOOL DouXIdentityWithinFeedUI(UIView *view, BOOL *avatarNamed) {
     return feed;
 }
 
+// A creator-liked badge is a tiny circular photo/heart alongside the "Reply"
+// action, not the regular comment avatar. Identify it by BOTH relative position
+// and the adjacent Reply label, leaving stickers and like controls untouched.
+static BOOL DouXIdentityIsReplyActionText(NSString *value) {
+    if (!value.length) return NO;
+    NSString *text = [value stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return [text caseInsensitiveCompare:@"Reply"] == NSOrderedSame ||
+           [text caseInsensitiveCompare:@"Yanıtla"] == NSOrderedSame;
+}
+
+static BOOL DouXIdentityFindReplyActionNear(UIView *root, UIWindow *window,
+                                            CGRect badge, NSUInteger depth) {
+    if (!root || depth > 9) return NO;
+    if ([root isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)root;
+        NSString *title = label.text ?: label.attributedText.string;
+        if (DouXIdentityIsReplyActionText(title)) {
+            CGRect rect = [label convertRect:label.bounds toView:window];
+            CGFloat horizontal = CGRectGetMidX(badge) - CGRectGetMaxX(rect);
+            if (horizontal > -6.0 && horizontal < 96.0 &&
+                fabs(CGRectGetMidY(badge) - CGRectGetMidY(rect)) < 18.0)
+                return YES;
+        }
+    }
+    for (UIView *child in root.subviews) {
+        if (DouXIdentityFindReplyActionNear(child, window, badge, depth + 1))
+            return YES;
+    }
+    return NO;
+}
+
+static BOOL DouXIdentityIsCreatorLikedBadge(UIImageView *image, CGRect badge) {
+    CGFloat width = CGRectGetWidth(badge), height = CGRectGetHeight(badge);
+    if (width < 9.0 || width > 40.0 || height < 9.0 || height > 40.0 ||
+        fabs(width - height) > 11.0 ||
+        !DouXIdentityWithinCommentUI(image)) return NO;
+
+    UIView *ancestor = image.superview;
+    for (NSUInteger i = 0; ancestor && i < 9; i++, ancestor = ancestor.superview) {
+        if ([ancestor isKindOfClass:[UITableView class]] ||
+            [ancestor isKindOfClass:[UICollectionView class]]) break;
+        if (DouXIdentityFindReplyActionNear(ancestor, image.window, badge, 0))
+            return YES;
+    }
+    return NO;
+}
+
+static void DouXIdentityUpdateCreatorLikedBadge(UIImageView *image, CGRect frame) {
+    UIView *view = image;
+    if (DouXIdentityIsCreatorLikedBadge(image, frame)) {
+        // Hide the badge wrapper if compact enough to include the overlaid heart.
+        UIView *container = image.superview;
+        if (container) {
+            CGRect rect = [container convertRect:container.bounds toView:image.window];
+            if (CGRectGetWidth(rect) >= CGRectGetWidth(frame) &&
+                CGRectGetWidth(rect) <= 48.0 &&
+                CGRectGetHeight(rect) >= CGRectGetHeight(frame) &&
+                CGRectGetHeight(rect) <= 48.0)
+                view = container;
+        }
+        DouXIdentitySetHidden(view, [DouXManager hideCommentAvatars]);
+    }
+}
+
+// Newer TikTok builds put the author's name and the blue "Creator" marker
+// in the same label or in adjacent labels above the actual reply text.
+static BOOL DouXIdentityCreatorMarkerText(NSString *value) {
+    if (!value.length) return NO;
+    NSString *text = [value stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return [text caseInsensitiveCompare:@"Creator"] == NSOrderedSame ||
+        [text rangeOfString:@" · Creator" options:NSCaseInsensitiveSearch].location != NSNotFound;
+}
+
+static void DouXIdentityMaskCreatorHeaderLabels(UIView *root, UILabel *marker,
+                                                 CGRect markerFrame, NSUInteger depth) {
+    if (!root || depth > 7) return;
+    if ([root isKindOfClass:[UILabel class]] && root != marker) {
+        UILabel *other = (UILabel *)root;
+        NSString *content = other.text ?: other.attributedText.string;
+        CGRect rect = [other convertRect:other.bounds toView:marker.window];
+        CGFloat distance = CGRectGetMinX(markerFrame) - CGRectGetMaxX(rect);
+        if (content.length > 0 && content.length < 100 &&
+            other.font.pointSize <= 18.0 && other.numberOfLines <= 1 &&
+            distance >= -8.0 && distance < 175.0 &&
+            fabs(CGRectGetMidY(markerFrame) - CGRectGetMidY(rect)) < 12.0) {
+            DouXIdentitySetHidden(other, [DouXManager hideCommentUsernames]);
+        }
+    }
+    for (UIView *child in root.subviews)
+        DouXIdentityMaskCreatorHeaderLabels(child, marker, markerFrame, depth + 1);
+}
+
+static void DouXIdentityApplyCreatorHeader(UILabel *label) {
+    NSString *value = label.text ?: label.attributedText.string;
+    BOOL marker = DouXIdentityCreatorMarkerText(value);
+    BOOL previouslyHidden = [objc_getAssociatedObject(label, &kDouXIdentityHiddenKey) boolValue];
+    if (!marker && !previouslyHidden) return;
+    if (!label.window || !DouXIdentityWithinCommentUI(label)) {
+        if (previouslyHidden) DouXIdentitySetHidden(label, NO);
+        return;
+    }
+    if (!marker) {
+        if (![DouXManager hideCommentUsernames])
+            DouXIdentitySetHidden(label, NO);
+        return;
+    }
+    CGRect rect = [label convertRect:label.bounds toView:label.window];
+    CGFloat width = CGRectGetWidth(label.window.bounds);
+    if (CGRectGetMinX(rect) < 0 || CGRectGetMinX(rect) > width * 0.75 ||
+        CGRectGetHeight(rect) > 38.0 || label.font.pointSize > 19.0) return;
+    DouXIdentitySetHidden(label, [DouXManager hideCommentUsernames]);
+    UIView *parent = label.superview;
+    for (NSUInteger i = 0; parent && i < 5; i++, parent = parent.superview) {
+        if ([parent isKindOfClass:[UITableView class]] ||
+            [parent isKindOfClass:[UICollectionView class]]) break;
+        DouXIdentityMaskCreatorHeaderLabels(parent, label, rect, 0);
+    }
+}
+
 static void DouXIdentityApplyImageFallback(UIImageView *image) {
     BOOL hideComment = [DouXManager hideCommentAvatars];
     BOOL hideFeed = [DouXManager hideVideoAvatars];
@@ -174,6 +295,8 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
     if (!window || !image.superview) return;
 
     CGRect rect = [image convertRect:image.bounds toView:window];
+    if (hideComment || [objc_getAssociatedObject(image, &kDouXIdentityHiddenKey) boolValue])
+        DouXIdentityUpdateCreatorLikedBadge(image, rect);
     CGFloat width = CGRectGetWidth(rect), height = CGRectGetHeight(rect);
     CGFloat screenWidth = CGRectGetWidth(window.bounds), screenHeight = CGRectGetHeight(window.bounds);
     if (width < 18.0 || width > 90.0 || fabs(width - height) > 12.0 ||
@@ -424,6 +547,25 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
 // Fallback for image-backed avatars on newer TikTok versions. This is limited
 // to image views that are located in a comment/feed context and at an avatar
 // position; the rest of the TikTok UI is left unchanged.
+// Only look for Creator markers inside comment UI; avoid hiding a creator's
+// profile text or ordinary comments that happen to mention the word.
+%hook UILabel
+- (void)layoutSubviews {
+    %orig;
+    if ([DouXManager hideCommentUsernames] ||
+        [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue]) {
+        DouXIdentityApplyCreatorHeader((UILabel *)self);
+    }
+}
+- (void)didMoveToWindow {
+    %orig;
+    if ([DouXManager hideCommentUsernames] ||
+        [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue]) {
+        DouXIdentityApplyCreatorHeader((UILabel *)self);
+    }
+}
+%end
+
 %hook UIImageView
 - (void)layoutSubviews {
     %orig;
