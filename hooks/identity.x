@@ -3,6 +3,7 @@
 // TikTok internal class names vary by version, so hooks fail open if a class/key is absent.
 #import "TikTokHeaders.h"
 #import <objc/runtime.h>
+#import <math.h>
 
 static char kDouXIdentityHiddenKey;
 
@@ -157,6 +158,12 @@ static void DouXIdentityApplyCommentCell(UIView *cell) {
     }
 }
 
+static BOOL DouXIdentityClassNameContains(id object, NSString *term) {
+    if (!object || !term) return NO;
+    NSString *name = NSStringFromClass([object class]);
+    return name && [name rangeOfString:term options:NSCaseInsensitiveSearch].location != NSNotFound;
+}
+
 static BOOL DouXIdentityIsElement(id element, NSString *name) {
     Class cls = NSClassFromString(name);
     return element && cls && [element isKindOfClass:cls];
@@ -199,8 +206,8 @@ static id DouXIdentityElementForRow(UIView *row) {
     BOOL avatarRow = DouXIdentityIsElement(element, @"AWEPlayInteractionUserAvatarElement")
         || DouXIdentityIsElement(element, @"AWEPlayInteractionAvatarElement")
         || DouXIdentityIsElement(element, @"TTKPlayInteractionUserAvatarElement")
-        || [NSStringFromClass([element class]) rangeOfString:@"Avatar" options:NSCaseInsensitiveSearch].location != NSNotFound
-        || [NSStringFromClass([self class]) rangeOfString:@"Avatar" options:NSCaseInsensitiveSearch].location != NSNotFound;
+        || DouXIdentityClassNameContains(element, @"Avatar")
+        || DouXIdentityClassNameContains(self, @"Avatar");
     BOOL musicRow = DouXIdentityIsElement(element, @"AWEPlayInteractionMusicElement")
         || DouXIdentityIsElement(element, @"AWEPlayInteractionMusicCoverElement")
         || DouXIdentityIsElement(element, @"TTKPlayInteractionMusicElement");
