@@ -4,6 +4,7 @@
 #import "DouXDownload.h"
 #import "DouXMultipleDownload.h"
 #import <os/log.h>
+#import <objc/message.h>
 #import "common.h"
 
 %hook TTKCommentPanelViewController
@@ -152,6 +153,13 @@
 }
 %end
 %hook AWEPlayInteractionUserAvatarElement
+// Let TikTok's own element manager hide the avatar and follow badge together.
+- (void)layoutElementView {
+    %orig;
+    if ([DouXManager hideVideoAvatars] && [(id)self respondsToSelector:@selector(setHide:)]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(self, @selector(setHide:), YES);
+    }
+}
 - (void)onFollowViewClicked:(id)sender {
     if ([DouXManager followConfirmation]) {
         showConfirmation(^(void) { %orig; });
