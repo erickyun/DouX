@@ -103,7 +103,7 @@
             case 12: return [self createSwitchCellWithTitle:@"Disable Live Streaming" Detail:@"Disable live video streaming" Key:@"disable_live"];
             case 13: return [self createSwitchCellWithTitle:@"Skip Recommendations" Detail:@"Skip recommended videos" Key:@"skip_recommnedations"];
             case 14: return [self createSwitchCellWithTitle:@"Upload Region" Detail:@"Show Upload Region Flag Next to Username" Key:@"upload_region"];
-            case 15: return [self createSwitchCellWithTitle:@"Hide Comment Usernames" Detail:@"Hide author names in comment rows; comments stay readable" Key:@"hide_comment_usernames"];
+            case 15: return [self createSwitchCellWithTitle:@"Hide Comment Usernames" Detail:@"Hide comment author names and @mentions without removing the rest of the comment" Key:@"hide_comment_usernames"];
             case 16: return [self createSwitchCellWithTitle:@"Hide Comment Profile Pictures" Detail:@"Hide avatars beside comments" Key:@"hide_comment_avatars"];
             case 17: return [self createSwitchCellWithTitle:@"Hide Video Usernames" Detail:@"Hide creator names on feed posts" Key:@"hide_video_usernames"];
             case 18: return [self createSwitchCellWithTitle:@"Hide Video Profile Pictures" Detail:@"Hide the creator avatar on the right of the feed" Key:@"hide_video_avatars"];
