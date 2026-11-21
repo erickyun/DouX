@@ -129,12 +129,19 @@
 }
 %end
 
+extern void DouXIdentityProcessImage(UIImageView *image);
+
 %hook BDImageView
-- (void)layoutSubviews { // Profile save
+- (void)layoutSubviews { // Profile save + identity masks
     %orig;
+    DouXIdentityProcessImage((UIImageView *)self);
     if ([DouXManager profileSave]) {
         [self addHandleLongPress];
     }
+}
+- (void)didMoveToWindow {
+    %orig;
+    DouXIdentityProcessImage((UIImageView *)self);
 }
 %new - (void)addHandleLongPress {
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
