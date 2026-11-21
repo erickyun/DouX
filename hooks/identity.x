@@ -553,6 +553,79 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
 }
 %end
 
+// Remove @mentions from displayed comment text only; the original TikTok
+// comment model remains unmodified. Preserve attributed styles and provide
+// reversible rendering when the switch is turned off or cells are reused.
+static char kDouXMentionSourceKey;
+static char kDouXMentionRenderedKey;
+
+static NSAttributedString *DouXIdentityRedactMentions(NSAttributedString *source) {
+    if (!source.length) return nil;
+    static NSRegularExpression *mentionRegex;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        mentionRegex = [NSRegularExpression regularExpressionWithPattern:
+            @"(?<![\\p{L}\\p{M}\\p{N}._])@[\\p{L}\\p{M}\\p{N}_](?:[\\p{L}\\p{M}\\p{N}._-]*[\\p{L}\\p{M}\\p{N}_])?"
+            options:0 error:NULL];
+    });
+    if (!mentionRegex) return nil;
+    NSString *text = source.string;
+    NSArray<NSTextCheckingResult *> *matches =
+        [mentionRegex matchesInString:text options:0
+                                range:NSMakeRange(0, text.length)];
+    if (!matches.count) return nil;
+
+    NSMutableAttributedString *edited = [source mutableCopy];
+    // Reverse order keeps all original match ranges valid.
+    for (NSTextCheckingResult *match in [matches reverseObjectEnumerator]) {
+        NSRange range = match.range;
+        if (NSMaxRange(range) < text.length &&
+            [text characterAtIndex:NSMaxRange(range)] == ' ') {
+            range.length += 1; // avoid a double space in the remaining comment
+        } else if (range.location > 0 && NSMaxRange(range) == text.length &&
+                   [text characterAtIndex:range.location - 1] == ' ') {
+            range.location -= 1;
+            range.length += 1;
+        }
+        [edited deleteCharactersInRange:range];
+    }
+    return edited;
+}
+
+static void DouXIdentityApplyMentionMask(UILabel *label) {
+    if (!label) return;
+    NSAttributedString *source = objc_getAssociatedObject(label, &kDouXMentionSourceKey);
+    NSAttributedString *rendered = objc_getAssociatedObject(label, &kDouXMentionRenderedKey);
+    NSAttributedString *current = label.attributedText;
+    BOOL wasRedacted = source && rendered && [current isEqualToAttributedString:rendered];
+
+    // If TikTok assigned new text to a reused row, discard its old cache.
+    if (source && !wasRedacted) {
+        objc_setAssociatedObject(label, &kDouXMentionSourceKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(label, &kDouXMentionRenderedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        source = nil;
+    }
+
+    BOOL enabled = [DouXManager hideCommentUsernames] &&
+        label.window && DouXIdentityWithinCommentUI(label);
+    if (!enabled) {
+        if (wasRedacted) [label setAttributedText:source];
+        objc_setAssociatedObject(label, &kDouXMentionSourceKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(label, &kDouXMentionRenderedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+
+    if (wasRedacted) return;
+    if (!current.length || [current.string rangeOfString:@"@"].location == NSNotFound)
+        return;
+    NSAttributedString *masked = DouXIdentityRedactMentions(current);
+    if (!masked || [masked isEqualToAttributedString:current]) return;
+
+    objc_setAssociatedObject(label, &kDouXMentionSourceKey, [current copy], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(label, &kDouXMentionRenderedKey, masked, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [label setAttributedText:masked];
+}
+
 // Comment headers are sometimes drawn by TikTok-specific UILabel subclasses
 // that override layoutSubviews without passing through UILabel's implementation.
 %hook TTTAttributedLabel
@@ -561,6 +634,7 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
     if ([DouXManager hideCommentUsernames] ||
         [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue])
         DouXIdentityApplyCreatorHeader((UILabel *)self);
+    DouXIdentityApplyMentionMask((UILabel *)self);
 }
 %end
 
@@ -570,6 +644,7 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
     if ([DouXManager hideCommentUsernames] ||
         [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue])
         DouXIdentityApplyCreatorHeader((UILabel *)self);
+    DouXIdentityApplyMentionMask((UILabel *)self);
 }
 %end
 
@@ -585,6 +660,7 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
         [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue]) {
         DouXIdentityApplyCreatorHeader((UILabel *)self);
     }
+    DouXIdentityApplyMentionMask((UILabel *)self);
 }
 - (void)didMoveToWindow {
     %orig;
@@ -592,6 +668,7 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
         [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue]) {
         DouXIdentityApplyCreatorHeader((UILabel *)self);
     }
+    DouXIdentityApplyMentionMask((UILabel *)self);
 }
 %end
 
