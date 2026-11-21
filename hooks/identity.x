@@ -45,7 +45,7 @@ static BOOL DouXIdentityCommentAvatarCandidate(UIView *candidate, UIView *row) {
     if (fabs(width - height) > 12.0) return NO;
     // Only the small leading avatar in a comment row. Do not hide pictures,
     // stickers, reaction buttons or images attached to the comment body.
-    if (CGRectGetMinX(rect) < -3.0 || CGRectGetMinX(rect) > 50.0) return NO;
+    if (CGRectGetMinX(rect) < -3.0 || CGRectGetMinX(rect) > 42.0) return NO;
     if (CGRectGetMinY(rect) < -3.0 || CGRectGetMinY(rect) > 65.0) return NO;
     return YES;
 }
