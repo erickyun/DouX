@@ -46,8 +46,22 @@ static BOOL DouXIdentityCommentAvatarCandidate(UIView *candidate, UIView *row) {
     if (fabs(width - height) > 12.0) return NO;
     // Only the small leading avatar in a comment row. Do not hide pictures,
     // stickers, reaction buttons or images attached to the comment body.
-    if (CGRectGetMinX(rect) < -3.0 || CGRectGetMinX(rect) > 42.0) return NO;
-    if (CGRectGetMinY(rect) < -3.0 || CGRectGetMinY(rect) > 65.0) return NO;
+    CGFloat left = CGRectGetMinX(rect), top = CGRectGetMinY(rect);
+    if (left < -3.0 || left > 110.0 || top < -3.0 ||
+        top > MAX(70.0, CGRectGetHeight(row.bounds))) return NO;
+    if (left > 42.0) {
+        // Replies are indented. Their smaller round avatars must not be
+        // confused with square stickers or photo replies in the comment body.
+        CGFloat radius = MAX(candidate.layer.cornerRadius,
+                             candidate.superview.layer.cornerRadius);
+        NSString *className = NSStringFromClass([candidate class]);
+        NSString *parentClass = NSStringFromClass([candidate.superview class]);
+        BOOL avatarClass = [className rangeOfString:@"Avatar"
+                                                  options:NSCaseInsensitiveSearch].location != NSNotFound ||
+            [parentClass rangeOfString:@"Avatar"
+                                      options:NSCaseInsensitiveSearch].location != NSNotFound;
+        if (!avatarClass && radius < MIN(width, height) * 0.27) return NO;
+    }
     return YES;
 }
 
@@ -190,6 +204,12 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
         return;
     }
     if (hiddenByUs) DouXIdentitySetHidden(image, NO);
+}
+
+// Also called from BDImageView's own layout hook, because subclass overrides
+// can bypass UIKit's inherited UIImageView method implementation.
+void DouXIdentityProcessImage(UIImageView *image) {
+    DouXIdentityApplyImageFallback(image);
 }
 
 static void DouXIdentityApplyCommentCell(UIView *cell) {
