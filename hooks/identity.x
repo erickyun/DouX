@@ -313,8 +313,18 @@ static BOOL DouXIdentityIsRightFeedAvatar(UIView *view) {
     CGFloat w = CGRectGetWidth(window.bounds), h = CGRectGetHeight(window.bounds);
     CGFloat diameter = MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
     if (w <= 0.0 || h <= 0.0) return NO;
-    return diameter >= 24.0 && diameter <= 90.0 &&
-        fabs(CGRectGetWidth(bounds) - CGRectGetHeight(bounds)) <= 18.0 &&
+    // The dedicated user-avatar view can include an extra follow/ring area,
+    // so its bounds need not be perfectly square.
+    NSString *name = NSStringFromClass([view class]);
+    BOOL dedicatedAvatar = [name isEqualToString:@"AWEPlayInteractionUserAvatarView"] ||
+        [name isEqualToString:@"AWEAdAvatarView"] ||
+        [name isEqualToString:@"AWEPlayInteractionAvatarView"];
+    BOOL plausibleSize = dedicatedAvatar
+        ? (CGRectGetWidth(bounds) >= 24.0 && CGRectGetWidth(bounds) <= 112.0 &&
+           CGRectGetHeight(bounds) >= 24.0 && CGRectGetHeight(bounds) <= 144.0)
+        : (diameter >= 24.0 && diameter <= 90.0 &&
+           fabs(CGRectGetWidth(bounds) - CGRectGetHeight(bounds)) <= 18.0);
+    return plausibleSize &&
         CGRectGetMinX(bounds) > w * 0.71 &&
         CGRectGetMidY(bounds) > h * 0.30 &&
         CGRectGetMidY(bounds) < h * 0.67;
