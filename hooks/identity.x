@@ -345,6 +345,25 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
 }
 %end
 
+// On newer TikTok feeds the profile photo is hosted in a dedicated
+// AWEPlayInteractionUserAvatarView, separate from its follow-prompt/plus view.
+// Only mask it when located at the video author's right-rail avatar position.
+%hook AWEPlayInteractionUserAvatarView
+- (void)layoutSubviews {
+    %orig;
+    DouXIdentityUpdateFeedAvatarView((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    DouXIdentityUpdateFeedAvatarView((UIView *)self);
+}
+- (void)setHidden:(BOOL)hidden {
+    if ([DouXManager hideVideoAvatars] && DouXIdentityIsRightFeedAvatar((UIView *)self))
+        hidden = YES;
+    %orig(hidden);
+}
+%end
+
 %hook AWEPlayInteractionAvatarView
 - (void)layoutSubviews {
     %orig;
