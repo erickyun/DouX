@@ -7,6 +7,7 @@
 #import <objc/message.h>
 
 static char kDouXIdentityHiddenKey;
+static char kDouXCreatorLikedBadgeKey;
 
 static UIView *DouXIdentityViewForKey(id object, NSString *key) {
     if (!object || !key) return nil;
@@ -213,22 +214,24 @@ static BOOL DouXIdentityIsCreatorLikedBadge(UIImageView *image, CGRect badge) {
 }
 
 static BOOL DouXIdentityUpdateCreatorLikedBadge(UIImageView *image, CGRect frame) {
+    BOOL match = DouXIdentityIsCreatorLikedBadge(image, frame);
+    BOOL wasBadge = [objc_getAssociatedObject(image, &kDouXCreatorLikedBadgeKey) boolValue];
+    if (!match && !wasBadge) return NO;
     UIView *view = image;
-    if (DouXIdentityIsCreatorLikedBadge(image, frame)) {
-        // Hide the badge wrapper if compact enough to include the overlaid heart.
-        UIView *container = image.superview;
-        if (container) {
-            CGRect rect = [container convertRect:container.bounds toView:image.window];
-            if (CGRectGetWidth(rect) >= CGRectGetWidth(frame) &&
-                CGRectGetWidth(rect) <= 48.0 &&
-                CGRectGetHeight(rect) >= CGRectGetHeight(frame) &&
-                CGRectGetHeight(rect) <= 48.0)
-                view = container;
-        }
-        DouXIdentitySetHidden(view, [DouXManager hideCommentAvatars]);
-        return YES;
+    // Hide the tiny avatar and overlaid heart as one compact widget.
+    UIView *container = image.superview;
+    if (container) {
+        CGRect rect = [container convertRect:container.bounds toView:image.window];
+        if (CGRectGetWidth(rect) >= CGRectGetWidth(frame) &&
+            CGRectGetWidth(rect) <= 48.0 &&
+            CGRectGetHeight(rect) >= CGRectGetHeight(frame) &&
+            CGRectGetHeight(rect) <= 48.0)
+            view = container;
     }
-    return NO;
+    DouXIdentitySetHidden(view, match && [DouXManager hideCommentAvatars]);
+    objc_setAssociatedObject(image, &kDouXCreatorLikedBadgeKey,
+                             match ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return match;
 }
 
 // Newer TikTok builds put the author's name and the blue "Creator" marker
@@ -292,14 +295,16 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
     BOOL hideFeed = [DouXManager hideVideoAvatars];
     BOOL hideNames = [DouXManager hideCommentUsernames];
     BOOL hiddenByUs = [objc_getAssociatedObject(image, &kDouXIdentityHiddenKey) boolValue];
-    if (!hideComment && !hideFeed && !hideNames && !hiddenByUs) return;
+    BOOL wasCreatorBadge = [objc_getAssociatedObject(image, &kDouXCreatorLikedBadgeKey) boolValue];
+    if (!hideComment && !hideFeed && !hideNames && !hiddenByUs && !wasCreatorBadge) return;
     UIWindow *window = image.window;
     if (!window || !image.superview) return;
 
     CGRect rect = [image convertRect:image.bounds toView:window];
     // This distinct badge needs to return early; otherwise the generic
     // avatar fallback can immediately unhide the tiny creator-liked image.
-    if (hideComment && DouXIdentityUpdateCreatorLikedBadge(image, rect))
+    if ((hideComment || wasCreatorBadge) &&
+        DouXIdentityUpdateCreatorLikedBadge(image, rect))
         return;
     CGFloat width = CGRectGetWidth(rect), height = CGRectGetHeight(rect);
     CGFloat screenWidth = CGRectGetWidth(window.bounds), screenHeight = CGRectGetHeight(window.bounds);
