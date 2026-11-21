@@ -553,6 +553,26 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
 }
 %end
 
+// Comment headers are sometimes drawn by TikTok-specific UILabel subclasses
+// that override layoutSubviews without passing through UILabel's implementation.
+%hook TTTAttributedLabel
+- (void)layoutSubviews {
+    %orig;
+    if ([DouXManager hideCommentUsernames] ||
+        [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue])
+        DouXIdentityApplyCreatorHeader((UILabel *)self);
+}
+%end
+
+%hook TUXLabel
+- (void)layoutSubviews {
+    %orig;
+    if ([DouXManager hideCommentUsernames] ||
+        [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue])
+        DouXIdentityApplyCreatorHeader((UILabel *)self);
+}
+%end
+
 // Fallback for image-backed avatars on newer TikTok versions. This is limited
 // to image views that are located in a comment/feed context and at an avatar
 // position; the rest of the TikTok UI is left unchanged.
