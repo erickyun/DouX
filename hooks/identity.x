@@ -193,10 +193,24 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
 
     BOOL avatarNamed = NO;
     BOOL inFeed = DouXIdentityWithinFeedUI(image, &avatarNamed);
-    CGFloat radius = image.layer.cornerRadius;
-    if (image.superview) radius = MAX(radius, image.superview.layer.cornerRadius);
-    BOOL roundImage = radius >= MIN(width, height) * 0.28;
-    if (inFeed && (avatarNamed || roundImage) &&
+    CGFloat radius = 0.0;
+    BOOL hasCircularMask = NO;
+    UIView *roundAncestor = image;
+    for (NSUInteger depth = 0; roundAncestor && depth < 4; depth++,
+         roundAncestor = roundAncestor.superview) {
+        radius = MAX(radius, roundAncestor.layer.cornerRadius);
+        if (roundAncestor.layer.mask &&
+            fabs(CGRectGetWidth(roundAncestor.bounds) -
+                 CGRectGetHeight(roundAncestor.bounds)) < 12.0) {
+            hasCircularMask = YES;
+        }
+    }
+    BOOL roundImage = radius >= MIN(width, height) * 0.27 || hasCircularMask;
+    BOOL inRightAvatarSpot = CGRectGetMinX(rect) > screenWidth * 0.78 &&
+        CGRectGetMidY(rect) > screenHeight * 0.37 &&
+        CGRectGetMidY(rect) < screenHeight * 0.60 &&
+        width >= 24.0 && width <= 70.0;
+    if ((inFeed || inRightAvatarSpot) && (avatarNamed || roundImage) &&
         CGRectGetMinX(rect) > screenWidth * 0.72 &&
         CGRectGetMidY(rect) > screenHeight * 0.15 &&
         CGRectGetMidY(rect) < screenHeight * 0.85) {
@@ -287,6 +301,63 @@ static id DouXIdentityElementForRow(UIView *row) {
     } else if (musicRow) {
         DouXIdentitySetHidden((UIView *)self, [DouXManager hideMusicDisc]);
     }
+}
+%end
+
+// Use the right-hand feed rail geometry only for the avatar-specific views.
+// This avoids touching profile pages, comment stickers and the like/share rail.
+static BOOL DouXIdentityIsRightFeedAvatar(UIView *view) {
+    if (!view || !view.window || !view.superview) return NO;
+    UIWindow *window = view.window;
+    CGRect bounds = [view convertRect:view.bounds toView:window];
+    CGFloat w = CGRectGetWidth(window.bounds), h = CGRectGetHeight(window.bounds);
+    CGFloat diameter = MIN(CGRectGetWidth(bounds), CGRectGetHeight(bounds));
+    if (w <= 0.0 || h <= 0.0) return NO;
+    return diameter >= 24.0 && diameter <= 90.0 &&
+        fabs(CGRectGetWidth(bounds) - CGRectGetHeight(bounds)) <= 18.0 &&
+        CGRectGetMinX(bounds) > w * 0.71 &&
+        CGRectGetMidY(bounds) > h * 0.30 &&
+        CGRectGetMidY(bounds) < h * 0.67;
+}
+
+static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
+    if (DouXIdentityIsRightFeedAvatar(view) ||
+        [objc_getAssociatedObject(view, &kDouXIdentityHiddenKey) boolValue]) {
+        DouXIdentitySetHidden(view, [DouXManager hideVideoAvatars]);
+    }
+}
+
+// TikTok's native right-rail avatar view. Unlike the follow-badge element,
+// these views still display the profile picture after setHide: hides the badge.
+%hook AWEAdAvatarView
+- (void)layoutSubviews {
+    %orig;
+    DouXIdentityUpdateFeedAvatarView((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    DouXIdentityUpdateFeedAvatarView((UIView *)self);
+}
+- (void)setHidden:(BOOL)hidden {
+    if ([DouXManager hideVideoAvatars] && DouXIdentityIsRightFeedAvatar((UIView *)self))
+        hidden = YES;
+    %orig(hidden);
+}
+%end
+
+%hook AWEPlayInteractionAvatarView
+- (void)layoutSubviews {
+    %orig;
+    DouXIdentityUpdateFeedAvatarView((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    DouXIdentityUpdateFeedAvatarView((UIView *)self);
+}
+- (void)setHidden:(BOOL)hidden {
+    if ([DouXManager hideVideoAvatars] && DouXIdentityIsRightFeedAvatar((UIView *)self))
+        hidden = YES;
+    %orig(hidden);
 }
 %end
 
