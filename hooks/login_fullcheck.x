@@ -1,5 +1,6 @@
 #import "DouXLoginDiagnostics.h"
 #import <Security/Security.h>
+#import <dlfcn.h>
 
 static NSString * const kDouXSelfCheckResultKey = @"doux_login_full_check_v2";
 static BOOL gDouXLoginCheckInProgress = NO;
@@ -31,17 +32,27 @@ NSString *DouXLoginEnvironmentReport(void) {
     // Entitlements are read from the signature of THIS app, never edited.
     NSString *appIdentifier = nil, *team = nil;
     NSArray *keychain = nil, *associated = nil;
-    SecTaskRef task = SecTaskCreateFromSelf(kCFAllocatorDefault);
+    // Older packaged iOS SDKs omit SecTask declarations, even though the
+    // public read-only functions exist on supported Apple OS versions.
+    // Resolve them dynamically; if missing, report "unavailable".
+    typedef CFTypeRef (*DouXCreateTaskFn)(CFAllocatorRef);
+    typedef CFTypeRef (*DouXCopyEntitlementFn)(CFTypeRef, CFStringRef, CFErrorRef *);
+    DouXCreateTaskFn createTask =
+        (DouXCreateTaskFn)dlsym(RTLD_DEFAULT, "SecTaskCreateFromSelf");
+    DouXCopyEntitlementFn copyEntitlement =
+        (DouXCopyEntitlementFn)dlsym(RTLD_DEFAULT, "SecTaskCopyValueForEntitlement");
+    CFTypeRef task = (createTask && copyEntitlement)
+        ? createTask(kCFAllocatorDefault) : NULL;
     if (task) {
-        CFTypeRef appValue = SecTaskCopyValueForEntitlement(
+        CFTypeRef appValue = copyEntitlement(
             task, CFSTR("application-identifier"), NULL);
-        if (!appValue) appValue = SecTaskCopyValueForEntitlement(
+        if (!appValue) appValue = copyEntitlement(
             task, CFSTR("com.apple.application-identifier"), NULL);
-        CFTypeRef teamValue = SecTaskCopyValueForEntitlement(
+        CFTypeRef teamValue = copyEntitlement(
             task, CFSTR("com.apple.developer.team-identifier"), NULL);
-        CFTypeRef keysValue = SecTaskCopyValueForEntitlement(
+        CFTypeRef keysValue = copyEntitlement(
             task, CFSTR("keychain-access-groups"), NULL);
-        CFTypeRef domainsValue = SecTaskCopyValueForEntitlement(
+        CFTypeRef domainsValue = copyEntitlement(
             task, CFSTR("com.apple.developer.associated-domains"), NULL);
         id a = CFBridgingRelease(appValue);
         id t = CFBridgingRelease(teamValue);
