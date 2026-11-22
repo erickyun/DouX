@@ -673,6 +673,7 @@ static void DouXIdentityUpdateFeedAvatarView(UIView *view) {
 // reversible rendering when the switch is turned off or cells are reused.
 static char kDouXMentionSourceKey;
 static char kDouXMentionRenderedKey;
+static char kDouXCommentTextRebindingKey;
 
 static NSAttributedString *DouXIdentityRedactMentions(NSAttributedString *source) {
     if (!source.length) return nil;
@@ -797,8 +798,13 @@ static void DouXIdentityClearCommentReuseTags(UIView *view, NSUInteger depth) {
         NSAttributedString *source = objc_getAssociatedObject(view, &kDouXMentionSourceKey);
         NSAttributedString *rendered = objc_getAssociatedObject(view, &kDouXMentionRenderedKey);
         if (source && rendered &&
-            [label.attributedText isEqualToAttributedString:rendered])
+            [label.attributedText isEqualToAttributedString:rendered]) {
+            objc_setAssociatedObject(label, &kDouXCommentTextRebindingKey, @YES,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [label setAttributedText:source];
+            objc_setAssociatedObject(label, &kDouXCommentTextRebindingKey, nil,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         objc_setAssociatedObject(view, &kDouXMentionSourceKey, nil,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(view, &kDouXMentionRenderedKey, nil,
@@ -838,6 +844,48 @@ static void DouXIdentityClearCommentReuseTags(UIView *view, NSUInteger depth) {
 // Only look for Creator markers inside comment UI; avoid hiding a creator's
 // profile text or ordinary comments that happen to mention the word.
 %hook UILabel
+// Process incoming labels before UIKit paints them, preventing a flash of
+// the original @mention text when TikTok updates an existing comment.
+- (void)setAttributedText:(NSAttributedString *)value {
+    NSAttributedString *display = value;
+    if (value.length && !objc_getAssociatedObject(self, &kDouXCommentTextRebindingKey) &&
+        [DouXManager hideCommentUsernames] &&
+        DouXIdentityWithinCommentUI((UIView *)self) &&
+        [value.string rangeOfString:@"@"].location != NSNotFound) {
+        NSAttributedString *redacted = DouXIdentityRedactMentions(value);
+        if (redacted) {
+            display = redacted;
+            objc_setAssociatedObject(self, &kDouXMentionSourceKey, [value copy],
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(self, &kDouXMentionRenderedKey, display,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+    %orig(display);
+}
+
+- (void)setText:(NSString *)value {
+    NSString *display = value;
+    NSAttributedString *original = nil;
+    if (value.length && !objc_getAssociatedObject(self, &kDouXCommentTextRebindingKey) &&
+        [DouXManager hideCommentUsernames] &&
+        DouXIdentityWithinCommentUI((UIView *)self) &&
+        [value rangeOfString:@"@"].location != NSNotFound) {
+        original = [[NSAttributedString alloc] initWithString:value];
+        NSAttributedString *masked = DouXIdentityRedactMentions(original);
+        if (masked) display = masked.string;
+        else original = nil;
+    }
+    %orig(display);
+    if (original) {
+        objc_setAssociatedObject(self, &kDouXMentionSourceKey, original,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(self, &kDouXMentionRenderedKey,
+                                 [self.attributedText copy],
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
 - (void)layoutSubviews {
     %orig;
     if ([DouXManager hideCommentUsernames] ||
