@@ -1,91 +1,161 @@
-name: Create IPA Packages
+name: Clean TikTok + Identity Only
 
 on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: "URL to the decrypted TikTok IPA file"
-        default: ""
-        required: true
+        description: "Direct URL to clean, decrypted TikTok IPA (not DouX/ASJTok)"
         type: string
-      tweak_url:
-        description: "URL to the Doux tweak file (.deb)"
-        default: ""
         required: true
+      source_bundle_id:
+        description: "Optional expected original IPA Bundle ID; leave blank to accept"
         type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2.0'
+          xcode-version: latest-stable
 
-      - name: Hide Sensitive Inputs
-        uses: levibostian/action-hide-sensitive-inputs@v1
-
-      - name: Download and Validate IPA
+      - name: Install Theos + iOS SDK
+        shell: bash
         run: |
-          wget "${{ inputs.ipa_url }}" --no-verbose -O ${{ github.workspace }}/tiktok.ipa
-          file_type=$(file --mime-type -b ${{ github.workspace }}/tiktok.ipa)
-          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
-            echo "::error::Validation failed: The downloaded file is not a valid IPA. Detected type: $file_type."
+          set -euo pipefail
+          brew install ldid xz
+          export THEOS="$RUNNER_TEMP/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks"
+          curl -fLsS https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz -o "$THEOS/sdks/sdk.tar.xz"
+          tar -xf "$THEOS/sdks/sdk.tar.xz" -C "$THEOS/sdks"
+          rm "$THEOS/sdks/sdk.tar.xz"
+
+      - name: Compile standalone privacy tweak
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d layout/DEBIAN ]; then mv layout/DEBIAN layout/DEBIAN.bak; fi
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ARCHS=arm64
+          cp "$(find packages -maxdepth 1 -type f -name '*.deb' | head -n 1)" CleanIdentity.deb
+          test -s CleanIdentity.deb
+          echo "Verify build uses only the independently selected sources"
+          grep -Fx 'CleanIdentity_FILES = clean_identity/identity.x clean_identity/CleanIdentityPrefs.m' Makefile
+          if grep -q 'DouXManager\|Tweak.x\|hooks/.*\.x' Makefile; then
+            echo "::error::Unexpected legacy DouX source in standalone Makefile"
             exit 1
           fi
+          echo "Standalone privacy library compiled; no DouX/ASJTok tweak linked."
 
-      - name: Download and Validate Tweak
-        run: |
-          wget "${{ inputs.tweak_url }}" --no-verbose -O ${{ github.workspace }}/doux.deb
-          file_type=$(file --mime-type -b ${{ github.workspace }}/doux.deb)
-          if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
-            echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."
-            exit 1
-          fi
+      - name: Upload standalone tweak package
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleanIdentity-only-deb-${{ github.run_number }}
+          path: CleanIdentity.deb
+          retention-days: 7
 
-      - name: Setup insert-dylib
+      - name: Download and validate user-provided CLEAN TikTok IPA
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          CLEAN_IPA_URL: ${{ inputs.ipa_url }}
+          EXPECTED_BUNDLE: ${{ inputs.source_bundle_id }}
         run: |
+          set -euo pipefail
+          if [[ -z "$CLEAN_IPA_URL" ]]; then echo "::error::Clean IPA URL required"; exit 1; fi
+          echo "::add-mask::$CLEAN_IPA_URL"
+          curl --retry 3 --fail --location --silent --show-error "$CLEAN_IPA_URL" -o TikTok-Clean-Input.ipa
+          python3 - <<'PY'
+          import zipfile, plistlib, os
+          with zipfile.ZipFile("TikTok-Clean-Input.ipa") as z:
+              if z.testzip(): raise RuntimeError("Corrupt source IPA")
+              files=z.namelist()
+              roots=[p for p in files if p.startswith("Payload/") and p.count("/")==2 and p.endswith(".app/Info.plist")]
+              if len(roots)!=1: raise RuntimeError("Expected one main TikTok app")
+              info=plistlib.loads(z.read(roots[0]))
+              bid=info.get("CFBundleIdentifier", "")
+              ver=info.get("CFBundleShortVersionString", "")
+              print("Clean TikTok source:",bid,"version",ver)
+              if not bid.startswith(("com.zhiliaoapp.musically", "com.ss.iphone.ugc.Ame")):
+                  raise RuntimeError("Unexpected base app; only a TikTok IPA is allowed")
+              expected=os.environ.get("EXPECTED_BUNDLE", "")
+              if expected and bid!=expected:
+                  raise RuntimeError("Input bundle ID does not match expected Bundle ID")
+              names=[p.lower() for p in files]
+              forbidden=("doux.dylib", "asjtok.dylib", "asjtiktok.dylib", "sideloadspoof", "sideloadfix.dylib")
+              if any(any(key in path for key in forbidden) for path in names):
+                  raise RuntimeError("Base IPA already contains a third-party tweak; supply a CLEAN TikTok IPA")
+          PY
+
+      - name: Install injector
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
           git clone https://github.com/Tyilo/insert_dylib.git
           xcrun clang -x c -arch arm64 ./insert_dylib/insert_dylib/main.c -I/usr/include/ -o insert-dylib
           sudo mv insert-dylib /usr/local/bin/
           sudo chmod +x /usr/local/bin/insert-dylib
-
-      - name: Setup ivinject
-        run: |
           git clone https://github.com/whoeevee/ivinject.git
           cp -r ./ivinject/KnownFrameworks ~/.ivinject
-          wget https://github.com/whoeevee/ivinject/releases/download/first/ivinject-arm64
+          curl -fL https://github.com/whoeevee/ivinject/releases/download/first/ivinject-arm64 -o ivinject-arm64
           sudo mv ivinject-arm64 /usr/local/bin/
           sudo chmod +x /usr/local/bin/ivinject-arm64
 
-      - name: Setup ipapatch
+      - name: Inject ONLY CleanIdentity into clean TikTok
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
         run: |
-          wget https://github.com/asdfzxcvbn/ipapatch/releases/download/v2.1.0/ipapatch.macos-arm64
-          sudo mv ipapatch.macos-arm64 /usr/local/bin/ipapatch
-          sudo chmod +x /usr/local/bin/ipapatch
+          set -euo pipefail
+          # Do not ad-hoc-sign here: ESign will re-sign with user's own authorized profile.
+          ivinject-arm64 TikTok-Clean-Input.ipa TikTok-Clean-Identity-Only.ipa -i CleanIdentity.deb -d --level Optimal
+          test -s TikTok-Clean-Identity-Only.ipa
 
-      - name: Create Doux Package
+      - name: Verify clean source identity and exactly our injected tweak
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
         run: |
-          ivinject-arm64 tiktok.ipa TikTok-Doux.ipa \
-            -i doux.deb \
-            -s - -d --level Optimal
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile,plistlib
+          def info(path):
+              with zipfile.ZipFile(path) as z:
+                  files=z.namelist()
+                  plists=[p for p in files if p.startswith("Payload/") and p.count("/")==2 and p.endswith(".app/Info.plist")]
+                  if len(plists)!=1: raise RuntimeError("Missing app Info.plist")
+                  return plistlib.loads(z.read(plists[0])),files
+          before,bfiles=info("TikTok-Clean-Input.ipa")
+          after,files=info("TikTok-Clean-Identity-Only.ipa")
+          for key in ("CFBundleIdentifier","CFBundleShortVersionString"):
+              if before.get(key)!=after.get(key): raise RuntimeError("Injector changed "+key)
+          added=set(files)-set(bfiles)
+          dylibs=[p.lower() for p in added if p.lower().endswith(".dylib")]
+          if not any("cleanidentity.dylib" in p for p in dylibs):
+              raise RuntimeError("Our privacy tweak was not injected")
+          if any("doux.dylib" in p or "asjtok" in p for p in dylibs):
+              raise RuntimeError("Unexpected DouX/ASJTok dylib in clean output")
+          print("CleanIdentity is the only newly injected tweak.")
+          print("Bundle ID:",after.get("CFBundleIdentifier"))
+          print("TikTok version:",after.get("CFBundleShortVersionString"))
+          print("NOTE: compile/package success does not guarantee login on a re-signed app.")
+          PY
 
-      - name: Create Patched Package
-        run: ipapatch -input TikTok-Doux.ipa -output TikTok-Doux-patched.ipa
-    
-      - name: Upload to GitHub Releases
-        uses: softprops/action-gh-release@v2.0.1
+      - name: Upload clean IPA for ESign
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: doux-${{ github.run_number }}
-          name: TikTok Doux (${{ github.run_number }})
-          files: |
-            TikTok-Doux.ipa 
-            TikTok-Doux-patched.ipa
-          draft: true
-
-      - name: Output Release URL
-        run: |
-          echo "::notice::Release available at: https://github.com/${{ github.repository }}/releases"
+          name: TikTok-Clean-Identity-Only-${{ github.run_number }}
+          path: TikTok-Clean-Identity-Only.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
