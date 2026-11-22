@@ -1,0 +1,150 @@
+name: ASJTok + DouX Combined IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "ASJTok official IPA (47.6.0) or custom TikTok IPA + ASJTok dylib (experimental)"
+        required: true
+        type: choice
+        options:
+          - official_asjtok_47_6
+          - custom_tiktok_with_asjtok
+        default: official_asjtok_47_6
+      ipa_url:
+        description: "Required only for custom mode: URL of decrypted TikTok IPA"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  combine:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Fetch official ASJTok base or custom TikTok
+        env:
+          SOURCE_MODE: ${{ inputs.source }}
+          USER_IPA_URL: ${{ inputs.ipa_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$SOURCE_MODE" == "official_asjtok_47_6" ]]; then
+            url="https://github.com/asjrx/ASJTok/releases/download/v1.4.1/ASJTok-1.4.1_47.6.0.ipa"
+          else
+            [[ "$SOURCE_MODE" == "custom_tiktok_with_asjtok" ]] || exit 1
+            [[ -n "$USER_IPA_URL" ]] || { echo "::error::ipa_url is required"; exit 1; }
+            echo "::add-mask::$USER_IPA_URL"
+            url="$USER_IPA_URL"
+            echo "::warning::ASJTok binary is built for TikTok 47.6.0, not 47.8.0. Runtime compatibility is unverified."
+            curl -fL --retry 3 --silent --show-error \
+              https://github.com/asjrx/ASJTok/releases/download/v1.4.1/ASJTok-1.4.1_47.6.0.dylib \
+              -o ASJTok.dylib
+            test -s ASJTok.dylib
+          fi
+          curl -fL --retry 3 --silent --show-error "$url" -o base.ipa
+          test -s base.ipa
+          python3 - <<'PY'
+          import zipfile, plistlib, os
+          with zipfile.ZipFile("base.ipa") as z:
+              names = z.namelist()
+              roots = [n for n in names if n.startswith("Payload/") and n.count("/") == 2 and n.endswith(".app/Info.plist")]
+              if len(roots) != 1:
+                  raise RuntimeError("Expected one TikTok .app Info.plist")
+              info = plistlib.loads(z.read(roots[0]))
+              print("Source TikTok version:", info.get("CFBundleShortVersionString"))
+              if os.environ.get("SOURCE_MODE") == "official_asjtok_47_6" and info.get("CFBundleShortVersionString") != "47.6.0":
+                  raise RuntimeError("Unexpected official ASJTok TikTok version")
+          PY
+
+      - name: Install Theos
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ldid xz
+          export THEOS="$RUNNER_TEMP/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks"
+          curl -fLsS https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz -o "$THEOS/sdks/sdk.tar.xz"
+          tar -xf "$THEOS/sdks/sdk.tar.xz" -C "$THEOS/sdks"
+          rm "$THEOS/sdks/sdk.tar.xz"
+
+      - name: Compile our existing DouX features
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply scripts/compile_jgprogresshud.patch
+          if [ -d layout/DEBIAN ]; then mv layout/DEBIAN layout/DEBIAN.bak; fi
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ARCHS=arm64
+          cp "$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)" DouX.deb
+          test -s DouX.deb
+
+      - name: Install ivinject
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/Tyilo/insert_dylib.git
+          xcrun clang -x c -arch arm64 ./insert_dylib/insert_dylib/main.c -I/usr/include/ -o insert-dylib
+          sudo mv insert-dylib /usr/local/bin/
+          sudo chmod +x /usr/local/bin/insert-dylib
+          git clone https://github.com/whoeevee/ivinject.git
+          cp -r ./ivinject/KnownFrameworks ~/.ivinject
+          curl -fL https://github.com/whoeevee/ivinject/releases/download/first/ivinject-arm64 -o ivinject-arm64
+          sudo mv ivinject-arm64 /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ivinject-arm64
+
+      - name: Combine ASJTok and DouX
+        env:
+          SOURCE_MODE: ${{ inputs.source }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$SOURCE_MODE" == "official_asjtok_47_6" ]]; then
+            ivinject-arm64 base.ipa ASJTok-DouX-combined.ipa -i DouX.deb -s - -d --level Optimal
+          else
+            ivinject-arm64 base.ipa ASJTok-DouX-combined.ipa -i DouX.deb ASJTok.dylib -s - -d --level Optimal
+          fi
+
+      - name: Verify combined IPA and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile, plistlib
+          def inspect(path):
+              with zipfile.ZipFile(path) as z:
+                  names=z.namelist()
+                  plists=[p for p in names if p.startswith("Payload/") and p.count("/")==2 and p.endswith(".app/Info.plist")]
+                  if len(plists)!=1: raise ValueError("Main app info not found")
+                  return plistlib.loads(z.read(plists[0])),names
+          old,_=inspect("base.ipa")
+          new,names=inspect("ASJTok-DouX-combined.ipa")
+          for key in ("CFBundleIdentifier","CFBundleShortVersionString"):
+              if old.get(key)!=new.get(key): raise ValueError("Unexpected change: "+key)
+          dylibs=[p.lower() for p in names if p.lower().endswith(".dylib")]
+          if not any("doux" in p for p in dylibs): raise ValueError("DouX not injected")
+          if not any("asjtok" in p for p in dylibs): raise ValueError("ASJTok not present")
+          print("Both tweaks present; TikTok version:",new.get("CFBundleShortVersionString"))
+          print("Bundle ID preserved:",new.get("CFBundleIdentifier"))
+          print("This does NOT verify either tweak runs or that Google login succeeds.")
+          PY
+
+      - name: Upload combined IPA (no automatic public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASJTok-DouX-combined-${{ github.run_number }}
+          path: ASJTok-DouX-combined.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
