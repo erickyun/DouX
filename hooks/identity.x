@@ -36,6 +36,21 @@ static void DouXIdentitySetHidden(UIView *view, BOOL shouldHide) {
     }
 }
 
+// Remember which privacy control owns a hidden comment view. TikTok may
+// reconfigure that same view and call setHidden:NO when cells are recycled.
+static char kDouXCommentAvatarGuardKey;
+static char kDouXCommentNameGuardKey;
+static BOOL DouXIdentityWithinCommentUI(UIView *view);
+
+static void DouXIdentitySetCommentHidden(UIView *view, BOOL hide, BOOL isName) {
+    if (!view) return;
+    const void *key = isName ? (const void *)&kDouXCommentNameGuardKey
+                             : (const void *)&kDouXCommentAvatarGuardKey;
+    objc_setAssociatedObject(view, key, hide ? @YES : nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    DouXIdentitySetHidden(view, hide);
+}
+
 // TikTok's AWECommentPanelCell is a UITableView, not an individual row.
 // Newer TikTok builds also wrap avatars inside image views rather than exposing
 // a stable avatarView property on the outer comment container.
@@ -90,7 +105,7 @@ static BOOL DouXIdentityMaskNameNearAvatar(UIView *view, UIWindow *window,
             CGRectGetMinX(frame) < CGRectGetMaxX(avatar) + 42.0 &&
             fabs(CGRectGetMidY(frame) - CGRectGetMidY(avatar)) < 23.0;
         if (nextToAvatar && DouXIdentityLooksLikeUsernameLabel(label)) {
-            DouXIdentitySetHidden(label, [DouXManager hideCommentUsernames]);
+            DouXIdentitySetCommentHidden(label, [DouXManager hideCommentUsernames], YES);
             return YES;
         }
     }
@@ -116,7 +131,7 @@ static void DouXIdentityMaskNearbyCommentName(UIImageView *avatarView) {
 static void DouXIdentityScanCommentImages(UIView *view, UIView *row, NSUInteger depth) {
     if (!view || depth > 10) return;
     if (DouXIdentityCommentAvatarCandidate(view, row)) {
-        DouXIdentitySetHidden(view, [DouXManager hideCommentAvatars]);
+        DouXIdentitySetCommentHidden(view, [DouXManager hideCommentAvatars], NO);
         DouXIdentityMaskNearbyCommentName((UIImageView *)view);
     }
     for (UIView *child in view.subviews) {
@@ -126,12 +141,12 @@ static void DouXIdentityScanCommentImages(UIView *view, UIView *row, NSUInteger 
 
 static void DouXIdentityApplyCommentRow(UIView *row) {
     if (!row) return;
-    DouXIdentitySetHidden(DouXIdentityViewForKey(row, @"nameLabel"),
-                           [DouXManager hideCommentUsernames]);
-    DouXIdentitySetHidden(DouXIdentityViewForKey(row, @"avatarView"),
-                           [DouXManager hideCommentAvatars]);
-    DouXIdentitySetHidden(DouXIdentityViewForKey(row, @"avatarBorderView"),
-                           [DouXManager hideCommentAvatars]);
+    DouXIdentitySetCommentHidden(DouXIdentityViewForKey(row, @"nameLabel"),
+                                  [DouXManager hideCommentUsernames], YES);
+    DouXIdentitySetCommentHidden(DouXIdentityViewForKey(row, @"avatarView"),
+                                  [DouXManager hideCommentAvatars], NO);
+    DouXIdentitySetCommentHidden(DouXIdentityViewForKey(row, @"avatarBorderView"),
+                                  [DouXManager hideCommentAvatars], NO);
     DouXIdentityScanCommentImages(row, row, 0);
 }
 
@@ -260,7 +275,7 @@ static BOOL DouXIdentityMaskAdjacentBadges(UIView *root, UIWindow *window,
             UIView *wrapper = DouXIdentitySmallestBadgeWrapper(child, window);
             objc_setAssociatedObject(wrapper, &kDouXFooterBadgeKey,
                                      @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            DouXIdentitySetHidden(wrapper, [DouXManager hideCommentAvatars]);
+            DouXIdentitySetCommentHidden(wrapper, [DouXManager hideCommentAvatars], NO);
             found = YES;
             continue;
         }
@@ -301,8 +316,8 @@ static BOOL DouXIdentityRefreshTaggedFooterBadge(UIImageView *image) {
         if (objc_getAssociatedObject(parent, &kDouXFooterBadgeKey)) {
             target = parent;
             BOOL inComments = DouXIdentityWithinCommentUI(target);
-            DouXIdentitySetHidden(target,
-                [DouXManager hideCommentAvatars] && inComments);
+            DouXIdentitySetCommentHidden(target,
+                [DouXManager hideCommentAvatars] && inComments, NO);
             if (!inComments)
                 objc_setAssociatedObject(target, &kDouXFooterBadgeKey, nil,
                                          OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -327,7 +342,7 @@ static BOOL DouXIdentityUpdateCreatorLikedBadge(UIImageView *image, CGRect frame
             CGRectGetHeight(rect) <= 48.0)
             view = container;
     }
-    DouXIdentitySetHidden(view, match && [DouXManager hideCommentAvatars]);
+    DouXIdentitySetCommentHidden(view, match && [DouXManager hideCommentAvatars], NO);
     objc_setAssociatedObject(image, &kDouXCreatorLikedBadgeKey,
                              match ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return match;
@@ -355,7 +370,7 @@ static void DouXIdentityMaskCreatorHeaderLabels(UIView *root, UILabel *marker,
             other.font.pointSize <= 18.0 && other.numberOfLines <= 1 &&
             distance >= -8.0 && distance < 175.0 &&
             fabs(CGRectGetMidY(markerFrame) - CGRectGetMidY(rect)) < 12.0) {
-            DouXIdentitySetHidden(other, [DouXManager hideCommentUsernames]);
+            DouXIdentitySetCommentHidden(other, [DouXManager hideCommentUsernames], YES);
         }
     }
     for (UIView *child in root.subviews)
@@ -368,19 +383,19 @@ static void DouXIdentityApplyCreatorHeader(UILabel *label) {
     BOOL previouslyHidden = [objc_getAssociatedObject(label, &kDouXIdentityHiddenKey) boolValue];
     if (!marker && !previouslyHidden) return;
     if (!label.window || !DouXIdentityWithinCommentUI(label)) {
-        if (previouslyHidden) DouXIdentitySetHidden(label, NO);
+        if (previouslyHidden) DouXIdentitySetCommentHidden(label, NO, YES);
         return;
     }
     if (!marker) {
         if (![DouXManager hideCommentUsernames])
-            DouXIdentitySetHidden(label, NO);
+            DouXIdentitySetCommentHidden(label, NO, YES);
         return;
     }
     CGRect rect = [label convertRect:label.bounds toView:label.window];
     CGFloat width = CGRectGetWidth(label.window.bounds);
     if (CGRectGetMinX(rect) < 0 || CGRectGetMinX(rect) > width * 0.75 ||
         CGRectGetHeight(rect) > 38.0 || label.font.pointSize > 19.0) return;
-    DouXIdentitySetHidden(label, [DouXManager hideCommentUsernames]);
+    DouXIdentitySetCommentHidden(label, [DouXManager hideCommentUsernames], YES);
     UIView *parent = label.superview;
     for (NSUInteger i = 0; parent && i < 5; i++, parent = parent.superview) {
         if ([parent isKindOfClass:[UITableView class]] ||
@@ -418,7 +433,7 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
     // TikTok changes the private row subclass or image-view property.
     if (CGRectGetMinX(rect) >= 0.0 && CGRectGetMinX(rect) < screenWidth * 0.26 &&
         DouXIdentityWithinCommentUI(image)) {
-        DouXIdentitySetHidden(image, hideComment);
+        DouXIdentitySetCommentHidden(image, hideComment, NO);
         DouXIdentityMaskNearbyCommentName(image);
         return;
     }
@@ -463,9 +478,9 @@ static void DouXIdentityApplyCommentCell(UIView *cell) {
     BOOL hideAvatars = [DouXManager hideCommentAvatars];
     // TikTok AWECommentPanelBaseCell exposes nameLabel, avatarView and
     // avatarBorderView in known versions. KVC protects newer versions.
-    DouXIdentitySetHidden(DouXIdentityViewForKey(cell, @"nameLabel"), hideNames);
-    DouXIdentitySetHidden(DouXIdentityViewForKey(cell, @"avatarView"), hideAvatars);
-    DouXIdentitySetHidden(DouXIdentityViewForKey(cell, @"avatarBorderView"), hideAvatars);
+    DouXIdentitySetCommentHidden(DouXIdentityViewForKey(cell, @"nameLabel"), hideNames, YES);
+    DouXIdentitySetCommentHidden(DouXIdentityViewForKey(cell, @"avatarView"), hideAvatars, NO);
+    DouXIdentitySetCommentHidden(DouXIdentityViewForKey(cell, @"avatarBorderView"), hideAvatars, NO);
     if ([cell isKindOfClass:[UITableView class]]) {
         for (UITableViewCell *row in ((UITableView *)cell).visibleCells) {
             DouXIdentityApplyCommentRow(row);
@@ -773,6 +788,22 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
     }
     DouXIdentityApplyMentionMask((UILabel *)self);
     DouXIdentityMaskFooterBadgeFromReply((UILabel *)self);
+}
+%end
+
+// Privacy guard: only previously identified comment identity views are
+// forced to remain invisible. This does not alter comment models or requests.
+%hook UIView
+- (void)setHidden:(BOOL)hidden {
+    if (!hidden) {
+        BOOL name = [objc_getAssociatedObject(self, &kDouXCommentNameGuardKey) boolValue];
+        BOOL avatar = [objc_getAssociatedObject(self, &kDouXCommentAvatarGuardKey) boolValue];
+        if ((name || avatar) && DouXIdentityWithinCommentUI((UIView *)self) &&
+            ((name && [DouXManager hideCommentUsernames]) ||
+             (avatar && [DouXManager hideCommentAvatars])))
+            hidden = YES;
+    }
+    %orig(hidden);
 }
 %end
 
