@@ -122,3 +122,71 @@ diagnostics did not capture `ASWebAuthenticationSession` completion.
 
 Use a freshly built IPA from this branch to collect a new report. Do not
 interpret previous reports using these newer event categories.
+
+## One-build comprehensive login investigation (2026-11-22)
+
+The user has already confirmed that the Google authentication callback reaches
+DouX 47.8.0. **A new Google sign-in button is not expected to fix a
+server-side TikTok session refusal** and no cookie/token copying or app
+attestation circumvention is attempted.
+
+### Login Safe Mode — enabled by default on this experiment branch
+
+**DouX Settings → Other → Login Safe Mode** temporarily suspends all ordinary
+DouX preference-controlled modifications (including comment/author identity
+hiding, region overrides, buttons, fake profile settings and app lock) while
+you sign in. This leaves TikTok's native login logic running with fewer tweak
+side effects. **The original saved DouX preferences remain intact.**
+
+- Login Compatibility Mode stays on by default and also prevents DouX Safari
+  redirects/region spoofing.
+- After signing in, switch **Login Safe Mode OFF**, then fully restart TikTok
+  to restore the saved comment/avatar/music hiding preferences.
+- You can also switch Safe Mode directly from the **DouX Login Diagnostics**
+  window, accessible by shaking the phone while logged out.
+- Safe Mode suppresses preference-controlled features, but does not unload
+  the injected dylib or guarantee that no unrelated hook executes.
+
+### Run Full Check — no repeatedly collected login logs required
+
+Open **DouX Login Diagnostics** (shake the phone or use Settings → Other).
+Tap **Run Full Check**. It performs two credential-free HEAD requests to
+\`https://www.tiktok.com/\` and \`https://accounts.google.com/\`, and reports:
+- DNS, timeout, TLS or other connection failure, or HTTP response received.
+  An HTTP response (even 403) only demonstrates network reachability; it does
+  NOT prove the login APIs work or an account is accepted.
+- On-device signed application identifier vs actual Bundle ID (when the
+  Security framework exposes its read-only entitlement APIs).
+- Presence/count of keychain-access groups, associated domains and URL callback
+  schemes, without logging actual sensitive values.
+- OAuth callback **parameter names only** (e.g. \`code\`, \`auth_code\`,
+  \`error\`), never parameter values, state, tokens or passwords.
+- HTTP status *categories* / DNS/TLS failure from matching URLSession
+  TikTok/Google authentication traffic, where visible. **TikTok's private TTNet
+  network stack may bypass NSURLSession, so a blank network section is not
+  proof no requests happened.**
+- A built-in summary prioritizing HTTP 429, connectivity issues, OAuth error,
+  HTTP 401/403, successful OAuth code return and inconclusive cases.
+
+The UI provides **Copy Report** as an optional one-off export, but shows its
+own assessment and connectivity result locally so sending repeated logs is
+not required. All data stays on-device until explicitly copied, and the user
+can clear it. No telemetry server is used.
+
+### Compile validation
+
+The additional \`.github/workflows/login-compile-check.yml\` action builds
+this entire tweak from source without a TikTok IPA, ensuring changes are not
+left at unchecked source-only status. Its compiled DEB can be used to validate
+the tweak packaging, but to install an IPA you must still use the separate
+\`Create IPA Packages\` workflow and sign the IPA with ESign.
+
+### What these changes CANNOT repair
+
+A different Bundle ID (\`com.zhiliaoapp.musicallyx\`), signing certificate,
+App ID entitlement, associated domains or keychain group can be incompatible
+with TikTok's Google/account/session configuration. This experimental branch
+can report clues and avoid some tweak interference, but **it cannot issue a
+TikTok session for an unrecognized app, alter TikTok's server-side login
+requirements, or guarantee that Google/password sign-in will work**. Do not
+remove or modify your working App Store TikTok installation.
