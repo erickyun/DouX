@@ -64,8 +64,19 @@ NSString *DouXLoginEnvironmentReport(void) {
         if ([d isKindOfClass:[NSArray class]]) associated = d;
         CFRelease(task);
     }
-    BOOL match = appIdentifier &&
-        [appIdentifier hasSuffix:[@"." stringByAppendingString:bundleID]];
+    // Signed application identifiers are usually PREFIX.bundle.identifier.
+    // Show just the bundle portion, without disclosing the signing-team prefix.
+    NSString *signedBundleSuffix = nil;
+    if (appIdentifier.length) {
+        NSRange separator = [appIdentifier rangeOfString:@"."];
+        if (separator.location != NSNotFound &&
+            separator.location + 1 < appIdentifier.length) {
+            signedBundleSuffix = [appIdentifier substringFromIndex:separator.location + 1];
+        }
+    }
+    BOOL matches = signedBundleSuffix &&
+        [signedBundleSuffix isEqualToString:bundleID];
+    BOOL wildcard = [signedBundleSuffix isEqualToString:@"*"];
     BOOL googleReverseScheme = NO;
     for (NSString *scheme in schemes) {
         if ([scheme hasPrefix:@"com.googleusercontent.apps."]) {
@@ -73,17 +84,21 @@ NSString *DouXLoginEnvironmentReport(void) {
         }
     }
     NSString *appIDState = !appIdentifier ? @"unavailable"
-        : (match ? @"matches_bundle" : @"does_not_match_bundle");
+        : (matches ? @"matches_bundle"
+        : (wildcard ? @"wildcard_review_profile" : @"does_not_match_bundle"));
+    NSString *signedBundleDescription = signedBundleSuffix ?: @"unavailable";
     return [NSString stringWithFormat:
         @"App bundle: %@\n"
          @"App ID entitlement: %@\n"
+         @"Signed App ID bundle portion: %@\n"
          @"Signing team: %@\n"
          @"Keychain access groups: %@\n"
          @"Associated domains: %@\n"
          @"Registered callback schemes: %lu (%lu unique)\n"
          @"Google reversed-client scheme present: %@\n"
          @"Note: entitlement presence does not prove TikTok accepts this signature.",
-         bundleID, appIDState, team.length ? @"present" : @"unavailable",
+         bundleID, appIDState, signedBundleDescription,
+         team.length ? @"present" : @"unavailable",
          keychain ? [NSString stringWithFormat:@"%lu", (unsigned long)keychain.count] : @"unavailable",
          associated ? [NSString stringWithFormat:@"%lu", (unsigned long)associated.count] : @"unavailable",
          (unsigned long)entries, (unsigned long)schemes.count,
