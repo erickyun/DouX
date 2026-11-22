@@ -741,6 +741,73 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
     [label setAttributedText:masked];
 }
 
+// Refresh rows before they are displayed and whenever TikTok reuses them.
+// This is scoped to comment tables/collections, not the entire feed.
+static char kDouXCommentRowRefreshingKey;
+
+static BOOL DouXIdentityAnyCommentPrivacyEnabled(void) {
+    return [DouXManager hideCommentUsernames] || [DouXManager hideCommentAvatars];
+}
+
+static void DouXIdentityRefreshCommentSubtree(UIView *view, NSUInteger depth) {
+    if (!view || depth > 12) return;
+    if ([view isKindOfClass:[UIImageView class]]) {
+        DouXIdentityApplyImageFallback((UIImageView *)view);
+    }
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        DouXIdentityApplyCreatorHeader(label);
+        DouXIdentityApplyMentionMask(label);
+        DouXIdentityMaskFooterBadgeFromReply(label);
+    }
+    for (UIView *child in view.subviews)
+        DouXIdentityRefreshCommentSubtree(child, depth + 1);
+}
+
+static void DouXIdentityRefreshCommentRow(UIView *row) {
+    if (!row || !DouXIdentityAnyCommentPrivacyEnabled() ||
+        !DouXIdentityWithinCommentUI(row) ||
+        objc_getAssociatedObject(row, &kDouXCommentRowRefreshingKey)) return;
+    objc_setAssociatedObject(row, &kDouXCommentRowRefreshingKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    @try {
+        DouXIdentityApplyCommentRow(row);
+        DouXIdentityRefreshCommentSubtree(row, 0);
+    } @finally {
+        objc_setAssociatedObject(row, &kDouXCommentRowRefreshingKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
+// Cells are reused for unrelated comments. Clear per-view guards before the
+// next comment is bound, so an old hidden username cannot hide new body text.
+static void DouXIdentityClearCommentReuseTags(UIView *view, NSUInteger depth) {
+    if (!view || depth > 12) return;
+    BOOL name = [objc_getAssociatedObject(view, &kDouXCommentNameGuardKey) boolValue];
+    BOOL avatar = [objc_getAssociatedObject(view, &kDouXCommentAvatarGuardKey) boolValue];
+    if (name || avatar) {
+        objc_setAssociatedObject(view, &kDouXCommentNameGuardKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(view, &kDouXCommentAvatarGuardKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        DouXIdentitySetHidden(view, NO);
+    }
+    objc_setAssociatedObject(view, &kDouXFooterBadgeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(view, &kDouXCreatorLikedBadgeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        NSAttributedString *source = objc_getAssociatedObject(view, &kDouXMentionSourceKey);
+        NSAttributedString *rendered = objc_getAssociatedObject(view, &kDouXMentionRenderedKey);
+        if (source && rendered &&
+            [label.attributedText isEqualToAttributedString:rendered])
+            [label setAttributedText:source];
+        objc_setAssociatedObject(view, &kDouXMentionSourceKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(view, &kDouXMentionRenderedKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    for (UIView *child in view.subviews)
+        DouXIdentityClearCommentReuseTags(child, depth + 1);
+}
+
 // Comment headers are sometimes drawn by TikTok-specific UILabel subclasses
 // that override layoutSubviews without passing through UILabel's implementation.
 %hook TTTAttributedLabel
@@ -804,6 +871,49 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
             hidden = YES;
     }
     %orig(hidden);
+}
+%end
+
+// Row lifecycle: ensure avatars, names, creator-liked badges and mentions
+// are hidden during first render and on every on-screen cell refresh.
+%hook UITableViewCell
+- (void)layoutSubviews {
+    %orig;
+    DouXIdentityRefreshCommentRow((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    DouXIdentityRefreshCommentRow((UIView *)self);
+}
+- (void)prepareForReuse {
+    DouXIdentityClearCommentReuseTags((UIView *)self, 0);
+    %orig;
+}
+%end
+
+%hook UICollectionViewCell
+- (void)layoutSubviews {
+    %orig;
+    DouXIdentityRefreshCommentRow((UIView *)self);
+}
+- (void)didMoveToWindow {
+    %orig;
+    DouXIdentityRefreshCommentRow((UIView *)self);
+}
+- (void)prepareForReuse {
+    DouXIdentityClearCommentReuseTags((UIView *)self, 0);
+    %orig;
+}
+%end
+
+%hook UICollectionView
+- (void)layoutSubviews {
+    %orig;
+    if (DouXIdentityAnyCommentPrivacyEnabled() &&
+        DouXIdentityWithinCommentUI((UIView *)self)) {
+        for (UICollectionViewCell *cell in [self visibleCells])
+            DouXIdentityRefreshCommentRow(cell);
+    }
 }
 %end
 
