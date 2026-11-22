@@ -213,6 +213,105 @@ static BOOL DouXIdentityIsCreatorLikedBadge(UIImageView *image, CGRect badge) {
     return NO;
 }
 
+// Creator-liked is sometimes a portrait+heart container rather than a
+// UIImageView. Match compact image widgets immediately following "Reply".
+static char kDouXFooterBadgeKey;
+
+static BOOL DouXIdentityContainsBadgeImage(UIView *view, NSUInteger depth) {
+    if (!view || depth > 3) return NO;
+    if ([view isKindOfClass:[UIImageView class]]) return YES;
+    for (UIView *child in view.subviews)
+        if (DouXIdentityContainsBadgeImage(child, depth + 1)) return YES;
+    return NO;
+}
+
+static UIView *DouXIdentitySmallestBadgeWrapper(UIView *view, UIWindow *window) {
+    UIView *selected = view;
+    for (UIView *parent = view.superview; parent && parent != window;
+         parent = parent.superview) {
+        CGRect frame = [parent convertRect:parent.bounds toView:window];
+        if (CGRectGetWidth(frame) > 48.0 || CGRectGetHeight(frame) > 48.0 ||
+            CGRectGetWidth(frame) < 8.0 || CGRectGetHeight(frame) < 8.0)
+            break;
+        selected = parent;
+    }
+    return selected;
+}
+
+static BOOL DouXIdentityMaskAdjacentBadges(UIView *root, UIWindow *window,
+                                           CGRect reply, NSUInteger depth) {
+    if (!root || depth > 10) return NO;
+    BOOL found = NO;
+    for (UIView *child in root.subviews) {
+        CGRect frame = [child convertRect:child.bounds toView:window];
+        CGFloat dx = CGRectGetMidX(frame) - CGRectGetMaxX(reply);
+        CGFloat dy = fabs(CGRectGetMidY(frame) - CGRectGetMidY(reply));
+        CGFloat w = CGRectGetWidth(frame), h = CGRectGetHeight(frame);
+        NSString *name = NSStringFromClass([child class]);
+        BOOL named = [name rangeOfString:@"Avatar"
+                                options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                     [name rangeOfString:@"CreatorLike"
+                                options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                     [name rangeOfString:@"AuthorLike"
+                                options:NSCaseInsensitiveSearch].location != NSNotFound;
+        if (dx >= -2.0 && dx <= 76.0 && dy < 20.0 &&
+            w >= 9.0 && w <= 44.0 && h >= 9.0 && h <= 44.0 &&
+            (named || DouXIdentityContainsBadgeImage(child, 3))) {
+            UIView *wrapper = DouXIdentitySmallestBadgeWrapper(child, window);
+            objc_setAssociatedObject(wrapper, &kDouXFooterBadgeKey,
+                                     @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            DouXIdentitySetHidden(wrapper, [DouXManager hideCommentAvatars]);
+            found = YES;
+            continue;
+        }
+        if (w > 44.0 && h >= 10.0 &&
+            CGRectGetMinY(frame) < CGRectGetMaxY(reply) + 35.0 &&
+            CGRectGetMaxY(frame) > CGRectGetMinY(reply) - 35.0)
+            found |= DouXIdentityMaskAdjacentBadges(child, window, reply, depth + 1);
+    }
+    return found;
+}
+
+static void DouXIdentityMaskFooterBadgeFromReply(UILabel *label) {
+    if (!label || !label.window || !DouXIdentityWithinCommentUI(label)) return;
+    NSString *title = label.text ?: label.attributedText.string;
+    if (!DouXIdentityIsReplyActionText(title)) return;
+    UIWindow *window = label.window;
+    CGRect frame = [label convertRect:label.bounds toView:window];
+    CGFloat screenWidth = CGRectGetWidth(window.bounds);
+    if (CGRectGetMinX(frame) < 0 || CGRectGetMaxX(frame) > screenWidth * 0.77 ||
+        CGRectGetHeight(frame) < 8.0 || CGRectGetHeight(frame) > 44.0) return;
+    UIView *parent = label.superview;
+    // Walk outward until the badge sibling is within scope. Stop before the
+    // comment table/collection to avoid hiding an unrelated row's controls.
+    for (NSUInteger level = 0; parent && level < 8;
+         level++, parent = parent.superview) {
+        if ([parent isKindOfClass:[UITableView class]] ||
+            [parent isKindOfClass:[UICollectionView class]]) break;
+        CGRect rect = [parent convertRect:parent.bounds toView:window];
+        if (CGRectGetMaxX(rect) > CGRectGetMaxX(frame) + 16.0 &&
+            DouXIdentityMaskAdjacentBadges(parent, window, frame, 0))
+            break;
+    }
+}
+
+static BOOL DouXIdentityRefreshTaggedFooterBadge(UIImageView *image) {
+    for (UIView *parent = image, *target = nil; parent && parent != image.window;
+         parent = parent.superview) {
+        if (objc_getAssociatedObject(parent, &kDouXFooterBadgeKey)) {
+            target = parent;
+            BOOL inComments = DouXIdentityWithinCommentUI(target);
+            DouXIdentitySetHidden(target,
+                [DouXManager hideCommentAvatars] && inComments);
+            if (!inComments)
+                objc_setAssociatedObject(target, &kDouXFooterBadgeKey, nil,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            return YES;
+        }
+    }
+    return NO;
+}
+
 static BOOL DouXIdentityUpdateCreatorLikedBadge(UIImageView *image, CGRect frame) {
     BOOL match = DouXIdentityIsCreatorLikedBadge(image, frame);
     BOOL wasBadge = [objc_getAssociatedObject(image, &kDouXCreatorLikedBadgeKey) boolValue];
@@ -301,6 +400,7 @@ static void DouXIdentityApplyImageFallback(UIImageView *image) {
     if (!window || !image.superview) return;
 
     CGRect rect = [image convertRect:image.bounds toView:window];
+    if (DouXIdentityRefreshTaggedFooterBadge(image)) return;
     // This distinct badge needs to return early; otherwise the generic
     // avatar fallback can immediately unhide the tiny creator-liked image.
     if ((hideComment || wasCreatorBadge) &&
@@ -635,6 +735,7 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
         [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue])
         DouXIdentityApplyCreatorHeader((UILabel *)self);
     DouXIdentityApplyMentionMask((UILabel *)self);
+    DouXIdentityMaskFooterBadgeFromReply((UILabel *)self);
 }
 %end
 
@@ -645,6 +746,7 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
         [objc_getAssociatedObject(self, &kDouXIdentityHiddenKey) boolValue])
         DouXIdentityApplyCreatorHeader((UILabel *)self);
     DouXIdentityApplyMentionMask((UILabel *)self);
+    DouXIdentityMaskFooterBadgeFromReply((UILabel *)self);
 }
 %end
 
@@ -661,6 +763,7 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
         DouXIdentityApplyCreatorHeader((UILabel *)self);
     }
     DouXIdentityApplyMentionMask((UILabel *)self);
+    DouXIdentityMaskFooterBadgeFromReply((UILabel *)self);
 }
 - (void)didMoveToWindow {
     %orig;
@@ -669,6 +772,7 @@ static void DouXIdentityApplyMentionMask(UILabel *label) {
         DouXIdentityApplyCreatorHeader((UILabel *)self);
     }
     DouXIdentityApplyMentionMask((UILabel *)self);
+    DouXIdentityMaskFooterBadgeFromReply((UILabel *)self);
 }
 %end
 
