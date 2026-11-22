@@ -59,6 +59,7 @@ static NSString *DouXLoginReport(void) {
         @"TikTok version: %@\n"
         @"Registered URL schemes: %lu\n"
         @"Login compatibility: %@\n"
+        @"Login Safe Mode: %@\n"
         @"Events: %lu\n\n%@\n\n"
         @"Environment check:\n%@\n\n"
         @"Network self-check:\n%@\n\n"
@@ -66,6 +67,7 @@ static NSString *DouXLoginReport(void) {
         @"Only event categories are captured; no full URLs, passwords or tokens.",
          bundleID, version, (unsigned long)schemeCount,
          [[NSUserDefaults standardUserDefaults] boolForKey:@"login_compat_mode"] ? @"ON" : @"OFF",
+         [[NSUserDefaults standardUserDefaults] boolForKey:@"login_isolation_mode"] ? @"ON" : @"OFF",
          (unsigned long)events.count,
          DouXLoginAssessment(events),
          DouXLoginEnvironmentReport(),
@@ -103,8 +105,10 @@ void DouXLoginDiagnosticsShow(void) {
     NSArray *recent = (events.count > 7)
         ? [events subarrayWithRange:NSMakeRange(events.count - 7, 7)] : events;
     NSString *preview = [NSString stringWithFormat:
-        @"Assessment:\n%@\n\nConnectivity:\n%@\n\nRecent events (%lu):\n%@\n\n"
+        @"Login Safe Mode: %@ (restart after changing)\n\nAssessment:\n%@\n\nConnectivity:\n%@\n\nRecent events (%lu):\n%@\n\n"
         @"Run Full Check tests web access and signing metadata without signing in.",
+        [[NSUserDefaults standardUserDefaults] boolForKey:@"login_isolation_mode"]
+            ? @"ON" : @"OFF",
         DouXLoginAssessment(events),
         DouXLoginSelfCheckResult(),
         (unsigned long)events.count,
@@ -113,6 +117,16 @@ void DouXLoginDiagnosticsShow(void) {
         alertControllerWithTitle:@"DouX Login Diagnostics"
                         message:preview
                  preferredStyle:UIAlertControllerStyleAlert];
+    BOOL safeMode = [[NSUserDefaults standardUserDefaults]
+        boolForKey:@"login_isolation_mode"];
+    [alert addAction:[UIAlertAction actionWithTitle:
+        (safeMode ? @"Restore DouX Tweaks (restart)" : @"Enable Login Safe Mode (restart)")
+        style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [[NSUserDefaults standardUserDefaults] setBool:!safeMode
+                                               forKey:@"login_isolation_mode"];
+        DouXLoginDiagnosticsRecord(safeMode ? @"safe_mode_disabled" :
+                                             @"safe_mode_enabled");
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Run Full Check"
         style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         DouXLoginRunFullCheck();
