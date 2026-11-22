@@ -261,10 +261,56 @@ static void DouXInstallCurrentCallbackProbes(void) {
 %end
 
 // Both can occur before Google / TikTok's browser authentication completes.
+// This callback is delivered directly to the ASWebAuthenticationSession
+// completion handler in many login flows, not to UIApplicationDelegate.
+// Record only completion status; never read or persist the callback URL.
+static void DouXLoginRecordAuthResult(NSURL *callbackURL, NSError *error) {
+    if (error) {
+        // Error codes are not credentials; avoid persisting localized
+        // descriptions or userInfo, which can embed sensitive URLs.
+        NSString *kind = [error.domain isEqualToString:ASWebAuthenticationSessionErrorDomain]
+            ? @"apple_auth" : @"other";
+        DouXLoginDiagnosticsRecord([NSString stringWithFormat:
+            @"web_auth_completed_error_%@_%ld", kind, (long)error.code]);
+    } else if (callbackURL) {
+        DouXLoginDiagnosticsRecord(@"web_auth_completed_callback_received");
+    } else {
+        DouXLoginDiagnosticsRecord(@"web_auth_completed_without_callback");
+    }
+}
+
 %hook ASWebAuthenticationSession
+- (instancetype)initWithURL:(NSURL *)URL
+          callbackURLScheme:(NSString *)callbackURLScheme
+          completionHandler:(void (^)(NSURL *, NSError *))completionHandler {
+    DouXLoginDiagnosticsRecord(@"web_auth_legacy_initializer");
+    if (!completionHandler) return %orig(URL, callbackURLScheme, completionHandler);
+    void (^wrapped)(NSURL *, NSError *) = ^(NSURL *callbackURL, NSError *error) {
+        DouXLoginRecordAuthResult(callbackURL, error);
+        completionHandler(callbackURL, error);
+    };
+    return %orig(URL, callbackURLScheme, wrapped);
+}
+
+// Newer AuthenticationServices versions allow a callback matching object.
+- (instancetype)initWithURL:(NSURL *)URL
+                   callback:(id)callback
+          completionHandler:(void (^)(NSURL *, NSError *))completionHandler {
+    DouXLoginDiagnosticsRecord(@"web_auth_modern_initializer");
+    if (!completionHandler) return %orig(URL, callback, completionHandler);
+    void (^wrapped)(NSURL *, NSError *) = ^(NSURL *callbackURL, NSError *error) {
+        DouXLoginRecordAuthResult(callbackURL, error);
+        completionHandler(callbackURL, error);
+    };
+    return %orig(URL, callback, wrapped);
+}
+
 - (BOOL)start {
     DouXLoginDiagnosticsRecord(@"web_auth_session_started");
-    return %orig;
+    BOOL didStart = %orig;
+    DouXLoginDiagnosticsRecord(didStart ? @"web_auth_start_accepted" :
+                                         @"web_auth_start_rejected");
+    return didStart;
 }
 - (void)cancel {
     DouXLoginDiagnosticsRecord(@"web_auth_session_cancelled");
