@@ -190,3 +190,47 @@ can report clues and avoid some tweak interference, but **it cannot issue a
 TikTok session for an unrecognized app, alter TikTok's server-side login
 requirements, or guarantee that Google/password sign-in will work**. Do not
 remove or modify your working App Store TikTok installation.
+
+## Research findings: iOS login in sideloaded TikTok (2026-11-22)
+
+- **ASJTok, issue #4**: a user on a non-jailbroken iPhone with Feather and a
+  paid signing certificate reported that older saved TikTok accounts and new
+  logins with **Save in iCloud Keychain** checked failed. Manual sign-in
+  *without* saving to iCloud Keychain succeeded. The maintainer acknowledged
+  that result. This is a user report, not evidence of a transferable runtime
+  login-fix implementation. Source:
+  https://github.com/asjrx/ASJTok/issues/4
+- **Signr**: a macOS signing project states that its bundled Sideload Spoofer
+  can make apps such as TikTok accept sideloaded login. Its component is a
+  precompiled `SideloadSpoofer.dylib`; the source code for that component
+  was not available for inspection in the repository. Do not inject opaque
+  binaries automatically into this build.
+  https://github.com/rursache/Signr
+- **Sideload Fix**: its open source implementation redirects re-signed apps'
+  keychain operations into entitled groups to address persistent-login
+  problems. Its author explicitly states it does **not** fix Google, Apple
+  or Facebook sign-in, and that adding a second keychain fix can cause login
+  loops. Not integrated as a purported Google login fix.
+  https://github.com/marioparaschiv/sideload-fix
+- **Morphe/ReVanced**: Google-login-fix patches for TikTok primarily target
+  Android; their package/signature/auth flows cannot be ported directly to
+  this iOS Logos tweak.
+
+### Safe workaround to try before any new patch
+
+In DouX's TikTok login screen use **Use another account** rather than tapping
+an account remembered from an earlier installation. If TikTok offers **Save in
+iCloud Keychain**, leave it unchecked and decline saving the password for this
+login attempt. Do not turn off or clear the iPhone's entire iCloud Keychain.
+
+This is an independently reported workaround, not a guaranteed solution for
+TikTok 47.8.0 with changed bundle identifier. If OAuth succeeds but TikTok
+still refuses its own session, signing and server-side constraints remain.
+
+### Signed App ID display
+
+The app-side diagnostics now show **Signed App ID bundle portion** (the suffix
+of the signed `application-identifier` after its prefix). This identifies
+the actual signed bundle portion next to the `CFBundleIdentifier`, rather
+than presenting an unexplained mismatch alone. Signed identity is determined
+by the signing operation and provisioning profile, not by the `DouX` tweak.
