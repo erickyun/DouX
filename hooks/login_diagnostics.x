@@ -1,0 +1,245 @@
+#import "TikTokHeaders.h"
+#import "DouXLoginDiagnostics.h"
+#import <objc/runtime.h>
+#import <objc/message.h>
+
+static NSString * const kDouXLoginEventsKey = @"doux_login_diagnostic_events";
+static NSString * const kDouXLoginEnabledKey = @"login_diagnostics";
+
+static BOOL DouXLoginDiagnosticsEnabled(void) {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kDouXLoginEnabledKey];
+}
+
+void DouXLoginDiagnosticsRecord(NSString *event) {
+    if (!DouXLoginDiagnosticsEnabled() || !event.length) return;
+    // IMPORTANT: only fixed internal event identifiers may be recorded.
+    // Never store usernames, raw URLs, query parameters, error descriptions,
+    // cookies, OAuth codes, authorization headers or login tokens.
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSArray *previous = [defaults arrayForKey:kDouXLoginEventsKey] ?: @[];
+    NSMutableArray *events = [previous mutableCopy];
+    NSString *entry = [NSString stringWithFormat:@"%@ | %@", [NSDate date], event];
+    [events addObject:entry];
+    while (events.count > 60) [events removeObjectAtIndex:0];
+    [defaults setObject:events forKey:kDouXLoginEventsKey];
+}
+
+static NSString *DouXLoginURLClass(NSURL *URL) {
+    NSString *scheme = URL.scheme.lowercaseString ?: @"";
+    if ([scheme isEqualToString:@"https"] || [scheme isEqualToString:@"http"])
+        return @"web";
+    if (scheme.length) return @"custom-scheme";
+    return @"unknown";
+}
+
+static NSString *DouXLoginReport(void) {
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSDictionary *info = bundle.infoDictionary ?: @{};
+    NSString *bundleID = bundle.bundleIdentifier ?: @"unknown";
+    NSString *version = info[@"CFBundleShortVersionString"] ?: @"unknown";
+    NSArray *types = info[@"CFBundleURLTypes"];
+    NSUInteger schemeCount = 0;
+    if ([types isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *item in types) {
+            NSArray *schemes = item[@"CFBundleURLSchemes"];
+            if ([schemes isKindOfClass:[NSArray class]])
+                schemeCount += schemes.count;
+        }
+    }
+    NSArray *events = [[NSUserDefaults standardUserDefaults] arrayForKey:kDouXLoginEventsKey] ?: @[];
+    return [NSString stringWithFormat:
+        @"DouX Login Diagnostics\n"
+         "TikTok bundle: %@\n"
+         "TikTok version: %@\n"
+         "Registered URL schemes: %lu\n"
+         "Login compatibility: %@\n"
+         "Events: %lu\n\n%@\n\n"
+         "Only event categories are captured; no full URLs, passwords or tokens.",
+         bundleID, version, (unsigned long)schemeCount,
+         [[NSUserDefaults standardUserDefaults] boolForKey:@"login_compat_mode"] ? @"ON" : @"OFF",
+         (unsigned long)events.count,
+         [events componentsJoinedByString:@"\n"]];
+}
+
+void DouXLoginDiagnosticsShow(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ DouXLoginDiagnosticsShow(); });
+        return;
+    }
+    UIWindow *window = nil;
+    for (UIWindow *candidate in [UIApplication sharedApplication].windows) {
+        if (candidate.isKeyWindow) { window = candidate; break; }
+    }
+    if (!window) window = [UIApplication sharedApplication].windows.firstObject;
+    UIViewController *controller = window.rootViewController;
+    for (NSUInteger i=0; controller && i < 12; i++) {
+        if (controller.presentedViewController) {
+            controller = controller.presentedViewController;
+        } else if ([controller isKindOfClass:[UINavigationController class]]) {
+            UIViewController *visible = ((UINavigationController *)controller).visibleViewController;
+            if (!visible || visible == controller) break;
+            controller = visible;
+        } else if ([controller isKindOfClass:[UITabBarController class]]) {
+            UIViewController *selected = ((UITabBarController *)controller).selectedViewController;
+            if (!selected || selected == controller) break;
+            controller = selected;
+        } else break;
+    }
+    if (!controller || [controller isKindOfClass:[UIAlertController class]]) return;
+    NSString *fullReport = DouXLoginReport();
+    NSArray *events = [[NSUserDefaults standardUserDefaults] arrayForKey:kDouXLoginEventsKey] ?: @[];
+    NSArray *recent = (events.count > 7)
+        ? [events subarrayWithRange:NSMakeRange(events.count - 7, 7)] : events;
+    NSString *preview = [NSString stringWithFormat:
+        @"Recent events (%lu):\n%@\n\nTap Copy to share the full report.",
+        (unsigned long)events.count,
+        recent.count ? [recent componentsJoinedByString:@"\n"] : @"No events yet"];
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"DouX Login Diagnostics"
+                        message:preview
+                 preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Copy Report"
+        style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [UIPasteboard generalPasteboard].string = fullReport;
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Clear Events"
+        style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:kDouXLoginEventsKey];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Close"
+        style:UIAlertActionStyleCancel handler:nil]];
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
+@interface DouXLoginObserver : NSObject
++ (void)start;
+@end
+
+@implementation DouXLoginObserver
++ (void)start {
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        kDouXLoginEnabledKey: @YES
+    }];
+    DouXLoginDiagnosticsRecord(@"diagnostics_started");
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center addObserver:self selector:@selector(activated:)
+                   name:UIApplicationDidBecomeActiveNotification object:nil];
+    [center addObserver:self selector:@selector(backgrounded:)
+                   name:UIApplicationDidEnterBackgroundNotification object:nil];
+    [center addObserver:self selector:@selector(foregrounded:)
+                   name:UIApplicationWillEnterForegroundNotification object:nil];
+}
++ (void)activated:(NSNotification *)note {
+    DouXLoginDiagnosticsRecord(@"app_active");
+}
++ (void)backgrounded:(NSNotification *)note {
+    DouXLoginDiagnosticsRecord(@"app_backgrounded");
+}
++ (void)foregrounded:(NSNotification *)note {
+    DouXLoginDiagnosticsRecord(@"app_foregrounded");
+}
+@end
+
+// Instrument only the app delegate callback, while forwarding the unmodified
+// arguments and original selector. No login token/callback URL is inspected.
+static BOOL DouXOpenURLCallback(id self, SEL command, UIApplication *app,
+                               NSURL *url, NSDictionary *options) {
+    DouXLoginDiagnosticsRecord(
+        [NSString stringWithFormat:@"app_callback_received_%@", DouXLoginURLClass(url)]);
+    SEL original = NSSelectorFromString(@"doux_original_application:openURL:options:");
+    Method backup = class_getInstanceMethod(object_getClass(self), original);
+    if (!backup) return NO;
+    BOOL (*originalIMP)(id, SEL, UIApplication *, NSURL *, NSDictionary *) =
+        (BOOL (*)(id, SEL, UIApplication *, NSURL *, NSDictionary *))
+        method_getImplementation(backup);
+    return originalIMP(self, command, app, url, options);
+}
+
+static BOOL DouXContinueActivityCallback(id self, SEL command, UIApplication *app,
+                                         NSUserActivity *activity, void (^restoration)(NSArray *)) {
+    DouXLoginDiagnosticsRecord(@"app_universal_link_or_user_activity_received");
+    SEL original = NSSelectorFromString(
+        @"doux_original_application:continueUserActivity:restorationHandler:");
+    Method backup = class_getInstanceMethod(object_getClass(self), original);
+    if (!backup) return NO;
+    BOOL (*originalIMP)(id, SEL, UIApplication *, NSUserActivity *, void (^)(NSArray *)) =
+        (BOOL (*)(id, SEL, UIApplication *, NSUserActivity *, void (^)(NSArray *)))
+        method_getImplementation(backup);
+    return originalIMP(self, command, app, activity, restoration);
+}
+
+static void DouXInstallCallbackProbe(id delegate, SEL target, SEL alias, IMP wrapper) {
+    if (!delegate) return;
+    Class cls = object_getClass(delegate);
+    Method method = class_getInstanceMethod(cls, target);
+    if (!method) return;
+    const char *types = method_getTypeEncoding(method);
+    IMP existing = method_getImplementation(method);
+    if (class_addMethod(cls, alias, existing, types)) {
+        class_replaceMethod(cls, target, wrapper, types);
+        DouXLoginDiagnosticsRecord(@"app_callback_probe_installed");
+    }
+}
+
+static void DouXInstallDelegateProbes(id delegate) {
+    DouXInstallCallbackProbe(delegate, @selector(application:openURL:options:),
+        NSSelectorFromString(@"doux_original_application:openURL:options:"),
+        (IMP)DouXOpenURLCallback);
+    DouXInstallCallbackProbe(delegate,
+        @selector(application:continueUserActivity:restorationHandler:),
+        NSSelectorFromString(
+            @"doux_original_application:continueUserActivity:restorationHandler:"),
+        (IMP)DouXContinueActivityCallback);
+}
+
+%hook UIApplication
+- (void)setDelegate:(id<UIApplicationDelegate>)delegate {
+    %orig(delegate);
+    DouXInstallDelegateProbes(delegate);
+}
+- (void)openURL:(NSURL *)url options:(NSDictionary *)options
+   completionHandler:(void (^)(BOOL))completion {
+    DouXLoginDiagnosticsRecord(
+        [NSString stringWithFormat:@"external_url_open_%@", DouXLoginURLClass(url)]);
+    %orig(url, options, completion);
+}
+- (BOOL)openURL:(NSURL *)url {
+    DouXLoginDiagnosticsRecord(
+        [NSString stringWithFormat:@"external_legacy_url_open_%@", DouXLoginURLClass(url)]);
+    return %orig(url);
+}
+%end
+
+// Both can occur before Google / TikTok's browser authentication completes.
+%hook ASWebAuthenticationSession
+- (BOOL)start {
+    DouXLoginDiagnosticsRecord(@"web_auth_session_started");
+    return %orig;
+}
+- (void)cancel {
+    DouXLoginDiagnosticsRecord(@"web_auth_session_cancelled");
+    %orig;
+}
+%end
+
+%hook SFSafariViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    DouXLoginDiagnosticsRecord(@"in_app_safari_displayed");
+}
+%end
+
+// Works on the sign-in screen, even when DouX Settings is unreachable:
+// shake the phone after closing any error alert to open/copy diagnostics.
+%hook UIWindow
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
+    %orig(motion, event);
+    if (motion == UIEventSubtypeMotionShake &&
+        DouXLoginDiagnosticsEnabled())
+        DouXLoginDiagnosticsShow();
+}
+%end
+
+%ctor {
+    [DouXLoginObserver start];
+}
