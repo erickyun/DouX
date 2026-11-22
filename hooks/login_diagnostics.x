@@ -3,6 +3,10 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+static void DouXInstallDelegateProbes(id delegate);
+static void DouXInstallSceneProbes(id delegate);
+static void DouXInstallCurrentCallbackProbes(void);
+
 static NSString * const kDouXLoginEventsKey = @"doux_login_diagnostic_events";
 static NSString * const kDouXLoginEnabledKey = @"login_diagnostics";
 
@@ -49,12 +53,12 @@ static NSString *DouXLoginReport(void) {
     NSArray *events = [[NSUserDefaults standardUserDefaults] arrayForKey:kDouXLoginEventsKey] ?: @[];
     return [NSString stringWithFormat:
         @"DouX Login Diagnostics\n"
-         "TikTok bundle: %@\n"
-         "TikTok version: %@\n"
-         "Registered URL schemes: %lu\n"
-         "Login compatibility: %@\n"
-         "Events: %lu\n\n%@\n\n"
-         "Only event categories are captured; no full URLs, passwords or tokens.",
+        @"TikTok bundle: %@\n"
+        @"TikTok version: %@\n"
+        @"Registered URL schemes: %lu\n"
+        @"Login compatibility: %@\n"
+        @"Events: %lu\n\n%@\n\n"
+        @"Only event categories are captured; no full URLs, passwords or tokens.",
          bundleID, version, (unsigned long)schemeCount,
          [[NSUserDefaults standardUserDefaults] boolForKey:@"login_compat_mode"] ? @"ON" : @"OFF",
          (unsigned long)events.count,
@@ -131,12 +135,14 @@ void DouXLoginDiagnosticsShow(void) {
 }
 + (void)activated:(NSNotification *)note {
     DouXLoginDiagnosticsRecord(@"app_active");
+    DouXInstallCurrentCallbackProbes();
 }
 + (void)backgrounded:(NSNotification *)note {
     DouXLoginDiagnosticsRecord(@"app_backgrounded");
 }
 + (void)foregrounded:(NSNotification *)note {
     DouXLoginDiagnosticsRecord(@"app_foregrounded");
+    DouXInstallCurrentCallbackProbes();
 }
 @end
 
@@ -190,6 +196,50 @@ static void DouXInstallDelegateProbes(id delegate) {
         NSSelectorFromString(
             @"doux_original_application:continueUserActivity:restorationHandler:"),
         (IMP)DouXContinueActivityCallback);
+}
+
+// Scene-based iOS applications may receive OAuth callbacks on the active
+// UISceneDelegate rather than the UIApplicationDelegate.
+static void DouXSceneOpenURLCallback(id self, SEL command, UIScene *scene,
+                                      NSSet *contexts) {
+    DouXLoginDiagnosticsRecord(@"scene_url_callback_received");
+    SEL original = NSSelectorFromString(@"doux_original_scene:openURLContexts:");
+    Method backup = class_getInstanceMethod(object_getClass(self), original);
+    if (!backup) return;
+    void (*imp)(id, SEL, UIScene *, NSSet *) =
+        (void (*)(id, SEL, UIScene *, NSSet *))method_getImplementation(backup);
+    imp(self, command, scene, contexts);
+}
+
+static void DouXSceneActivityCallback(id self, SEL command, UIScene *scene,
+                                       NSUserActivity *activity) {
+    DouXLoginDiagnosticsRecord(@"scene_user_activity_received");
+    SEL original = NSSelectorFromString(@"doux_original_scene:continueUserActivity:");
+    Method backup = class_getInstanceMethod(object_getClass(self), original);
+    if (!backup) return;
+    void (*imp)(id, SEL, UIScene *, NSUserActivity *) =
+        (void (*)(id, SEL, UIScene *, NSUserActivity *))
+        method_getImplementation(backup);
+    imp(self, command, scene, activity);
+}
+
+static void DouXInstallSceneProbes(id delegate) {
+    DouXInstallCallbackProbe(delegate, @selector(scene:openURLContexts:),
+        NSSelectorFromString(@"doux_original_scene:openURLContexts:"),
+        (IMP)DouXSceneOpenURLCallback);
+    DouXInstallCallbackProbe(delegate, @selector(scene:continueUserActivity:),
+        NSSelectorFromString(@"doux_original_scene:continueUserActivity:"),
+        (IMP)DouXSceneActivityCallback);
+}
+
+static void DouXInstallCurrentCallbackProbes(void) {
+    UIApplication *app = [UIApplication sharedApplication];
+    DouXInstallDelegateProbes(app.delegate);
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in app.connectedScenes) {
+            DouXInstallSceneProbes(scene.delegate);
+        }
+    }
 }
 
 %hook UIApplication
