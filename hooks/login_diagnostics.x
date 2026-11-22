@@ -268,7 +268,7 @@ static void DouXLoginRecordAuthResult(NSURL *callbackURL, NSError *error) {
     if (error) {
         // Error codes are not credentials; avoid persisting localized
         // descriptions or userInfo, which can embed sensitive URLs.
-        NSString *kind = [error.domain isEqualToString:ASWebAuthenticationSessionErrorDomain]
+        NSString *kind = [error.domain hasPrefix:@"com.apple.AuthenticationServices"]
             ? @"apple_auth" : @"other";
         DouXLoginDiagnosticsRecord([NSString stringWithFormat:
             @"web_auth_completed_error_%@_%ld", kind, (long)error.code]);
