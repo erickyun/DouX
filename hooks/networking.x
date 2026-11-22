@@ -3,7 +3,9 @@
 
 %hook SparkViewController // alwaysOpenSafari
 - (void)viewWillAppear:(BOOL)animated {
-    if (![DouXManager alwaysOpenSafari]) {
+    // OAuth and passkey/2FA flows must stay in TikTok's original browser
+    // path. This also overrides an already-enabled Always Open Safari.
+    if ([DouXManager loginCompatibilityMode] || ![DouXManager alwaysOpenSafari]) {
         return %orig;
     }
     

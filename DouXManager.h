@@ -33,6 +33,8 @@
 + (BOOL)profileVideoCount;
 + (BOOL)videoLikeCount;
 + (BOOL)videoUploadDate;
++ (BOOL)loginCompatibilityMode;
++ (BOOL)loginIsolationMode;
 + (BOOL)alwaysOpenSafari;
 + (BOOL)regionChangingEnabled;
 + (NSNumber *)selectedRegion;

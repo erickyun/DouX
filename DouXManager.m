@@ -9,102 +9,152 @@ static os_log_t douxmanager_log;
 
 + (void)load {
     douxmanager_log = os_log_create("com.kunihir0.doux", "DouXManager");
+    // Enabled by default only in the login-compatibility branch.
+    // registerDefaults does not overwrite the user's saved choice.
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"login_compat_mode": @YES,
+        @"login_isolation_mode": @YES
+    }];
 }
 
 + (BOOL)hideAds {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_ads"];
 }
 + (BOOL)downloadButton {
+    if ([self loginIsolationMode]) return NO;
      return [[NSUserDefaults standardUserDefaults] boolForKey:@"download_button"];
 }
 + (BOOL)shareSheet {
+    if ([self loginIsolationMode]) return NO;
      return [[NSUserDefaults standardUserDefaults] boolForKey:@"share_sheet"];
 }
 + (BOOL)removeWatermark {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"remove_watermark"];
 }
 + (BOOL)hideElementButton {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"remove_elements_button"];
 }
 + (BOOL)uploadRegion {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"upload_region"];
 }
 + (BOOL)autoPlay {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"auto_play"];
 }
 + (BOOL)stopPlay {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"stop_play"];
 }
 + (BOOL)progressBar {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"show_porgress_bar"];
 }
 + (BOOL)transparentCommnet {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"transparent_commnet"];
 }
 + (BOOL)showUsername {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"show_username"];
 }
 + (BOOL)hideCommentUsernames {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_comment_usernames"];
 }
 + (BOOL)hideCommentAvatars {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_comment_avatars"];
 }
 + (BOOL)hideVideoUsernames {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_video_usernames"];
 }
 + (BOOL)hideVideoAvatars {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_video_avatars"];
 }
 + (BOOL)hideMusicDisc {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"hide_music_disc"];
 }
 + (BOOL)disablePullToRefresh {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"pull_to_refresh"];
 }
 + (BOOL)disableUnsensitive {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"disable_unsensitive"];
 }
 + (BOOL)disableWarnings {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"disable_warnings"];
 }
 + (BOOL)disableLive {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"disable_live"];
 }
 + (BOOL)skipRecommendations {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"skip_recommnedations"];
 }
 + (BOOL)likeConfirmation {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"like_confirm"];
 }
 + (BOOL)likeCommentConfirmation {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"like_comment_confirm"];
 }
 + (BOOL)dislikeCommentConfirmation {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"dislike_comment_confirm"];
 }
 + (BOOL)followConfirmation {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"follow_confirm"];
 }
 + (BOOL)profileSave {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"save_profile"];
 }
 + (BOOL)profileCopy {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"copy_profile_information"];
 }
 + (BOOL)profileVideoCount {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"uploaded_videos"];
 }
++ (BOOL)loginCompatibilityMode {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"login_compat_mode"];
+}
++ (BOOL)loginIsolationMode {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"login_isolation_mode"];
+}
 + (BOOL)alwaysOpenSafari {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"openInBrowser"];
+    if ([self loginIsolationMode]) return NO;
+    // Keep TikTok's in-app OAuth/2FA handoff intact while compatibility
+    // mode is enabled. External browser redirects can lose return state.
+    return ![self loginCompatibilityMode] &&
+        [[NSUserDefaults standardUserDefaults] boolForKey:@"openInBrowser"];
 }
 + (BOOL)regionChangingEnabled {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"en_region"];
+    if ([self loginIsolationMode]) return NO;
+    // Authentication should see the device's actual region, even if the
+    // user previously selected a spoofed region for feed browsing.
+    return ![self loginCompatibilityMode] &&
+        [[NSUserDefaults standardUserDefaults] boolForKey:@"en_region"];
 }
 + (BOOL)speedEnabled {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"playback_en"];
 }
 + (BOOL)liveActionEnabled {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"en_livefunc"];
 }
 + (NSNumber *)selectedLiveAction {
@@ -114,37 +164,47 @@ static os_log_t douxmanager_log;
     return [[NSUserDefaults standardUserDefaults] objectForKey:@"playback_speed"];
 }
 + (BOOL)videoLikeCount {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"video_like_count"];
 }
 + (BOOL)videoUploadDate {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"video_upload_date"];
 }
 + (NSDictionary *)selectedRegion {
     return [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"region"];
 }
 + (BOOL)fakeChangesEnabled {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"en_fake"];
 }
 + (BOOL)fakeVerified {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"fake_verify"];
 }
 + (BOOL)extendedBio {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"extended_bio"];
 }
 + (BOOL)extendedComment {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"extendedComment"];
 }
 + (BOOL)uploadHD {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"upload_hd"];
 }
 + (BOOL)appLock {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"padlock"];
 }
 + (BOOL)flexEnabled {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"flex_enabled"];
 }
 
 + (BOOL)showVaultButton {
+    if ([self loginIsolationMode]) return NO;
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"show_vault_button"];
 }
 + (void)cleanCache {
