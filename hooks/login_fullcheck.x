@@ -65,13 +65,13 @@ NSString *DouXLoginEnvironmentReport(void) {
         : (match ? @"matches_bundle" : @"does_not_match_bundle");
     return [NSString stringWithFormat:
         @"App bundle: %@\n"
-         "App ID entitlement: %@\n"
-         "Signing team: %@\n"
-         "Keychain access groups: %@\n"
-         "Associated domains: %@\n"
-         "Registered callback schemes: %lu (%lu unique)\n"
-         "Google reversed-client scheme present: %@\n"
-         "Note: entitlement presence does not prove TikTok accepts this signature.",
+         @"App ID entitlement: %@\n"
+         @"Signing team: %@\n"
+         @"Keychain access groups: %@\n"
+         @"Associated domains: %@\n"
+         @"Registered callback schemes: %lu (%lu unique)\n"
+         @"Google reversed-client scheme present: %@\n"
+         @"Note: entitlement presence does not prove TikTok accepts this signature.",
          bundleID, appIDState, team.length ? @"present" : @"unavailable",
          keychain ? [NSString stringWithFormat:@"%lu", (unsigned long)keychain.count] : @"unavailable",
          associated ? [NSString stringWithFormat:@"%lu", (unsigned long)associated.count] : @"unavailable",
@@ -192,7 +192,7 @@ void DouXLoginRunFullCheck(void) {
         [session finishTasksAndInvalidate];
         NSString *result = [NSString stringWithFormat:
             @"TikTok web: %@\nGoogle accounts: %@\n"
-            "A successful HEAD request only verifies basic web connectivity, not TikTok login APIs.",
+            @"A successful HEAD request only verifies basic web connectivity, not TikTok login APIs.",
             results[@"TikTok web"] ?: @"No result",
             results[@"Google accounts"] ?: @"No result"];
         [[NSUserDefaults standardUserDefaults] setObject:result
