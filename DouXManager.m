@@ -9,6 +9,11 @@ static os_log_t douxmanager_log;
 
 + (void)load {
     douxmanager_log = os_log_create("com.kunihir0.doux", "DouXManager");
+    // Enabled by default only in the login-compatibility branch.
+    // registerDefaults does not overwrite the user's saved choice.
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"login_compat_mode": @YES
+    }];
 }
 
 + (BOOL)hideAds {
@@ -95,11 +100,20 @@ static os_log_t douxmanager_log;
 + (BOOL)profileVideoCount {
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"uploaded_videos"];
 }
++ (BOOL)loginCompatibilityMode {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"login_compat_mode"];
+}
 + (BOOL)alwaysOpenSafari {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"openInBrowser"];
+    // Keep TikTok's in-app OAuth/2FA handoff intact while compatibility
+    // mode is enabled. External browser redirects can lose return state.
+    return ![self loginCompatibilityMode] &&
+        [[NSUserDefaults standardUserDefaults] boolForKey:@"openInBrowser"];
 }
 + (BOOL)regionChangingEnabled {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"en_region"];
+    // Authentication should see the device's actual region, even if the
+    // user previously selected a spoofed region for feed browsing.
+    return ![self loginCompatibilityMode] &&
+        [[NSUserDefaults standardUserDefaults] boolForKey:@"en_region"];
 }
 + (BOOL)speedEnabled {
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"playback_en"];
