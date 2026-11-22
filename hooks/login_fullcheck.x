@@ -97,6 +97,14 @@ NSString *DouXLoginSelfCheckResult(void) {
 }
 
 NSString *DouXLoginAssessment(NSArray<NSString *> *events) {
+    // Analyze only the latest app launch's events, not stale attempts saved
+    // during the previous IPA session.
+    NSUInteger start = 0;
+    for (NSUInteger i = 0; i < events.count; i++) {
+        if ([events[i] containsString:@"diagnostics_started"]) start = i;
+    }
+    if (start > 0 && start < events.count)
+        events = [events subarrayWithRange:NSMakeRange(start, events.count - start)];
     // Prioritize actual transport and authorization outcomes over assumptions
     // based only on Safari foreground/background transitions.
     BOOL oauthCallback = NO, oauthError = NO, oauthCode = NO;
