@@ -1,244 +1,72 @@
-# DouX
-
-A powerful iOS tweak that enhances your TikTok experience with additional features like ad blocking, video downloads, and UI customization.
-
-[![Documentation](https://img.shields.io/badge/docs-comprehensive-blue.svg)](docs/)
-[![Platform](https://img.shields.io/badge/platform-iOS-lightgrey.svg)](https://developer.apple.com/ios/)
-[![Language](https://img.shields.io/badge/language-Objective--C-orange.svg)](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ProgrammingWithObjectiveC/Introduction/Introduction.html)
-[![Framework](https://img.shields.io/badge/framework-Theos-red.svg)](https://theos.dev/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![](https://img.shields.io/badge/APTrepo!-ff66ab?style=for-the-badge)](https://kunihir0.github.io/WattMaster)
-[![](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/WUyHNFYGSF)
-## Key Features
-
-- Ad-Free Experience: Remove all advertisements
-- Download Content: Save videos, photos, and music
-- Media Vault: Securely store your favorite photos and videos
-- UI Customization: Hide elements and customize interface
-- Privacy Controls: App lock and jailbreak detection bypass
-- Region Spoofing: Access content from different countries
-- Enhanced Playback: Speed controls and auto-play options
-
-## Installation
-
-### Requirements
-- Jailbroken iOS device (iOS 15.4+) + Rootless
-- MobileSubstrate installed
-- [libflex](https://alias20.gitlab.io/apt/) from the provided repo
-- JGProgress from our [repo](https://kunihir0.github.io/WattMaster/) 
-
-### Manual Installation
-1. Download the latest `.deb` file from [Releases](../../releases)
-2. Install with your Package Manager like Sileo or what ever your setup is
-3. Restart TikTok
-
-
-
-## Non-Jailbroken Installation
-
-There are two primary methods for installing this tweak on a non-jailbroken device: using TrollStore or sideloading with a tool like AltStore or SideStore.
-
-### Method 1: TrollStore (Recommended)
-
-This method uses [TrollStore](https://github.com/opa334/TrollStore) and a tool called [TrollFools](https://github.com/Lessica/TrollFools) to inject the tweak into the TikTok application. This is the recommended method as it provides a more stable and permanent installation.
-
-**Steps:**
-
-1.  **Build the tweak with embedded libraries:**
-
-    To use the tweak with TrollFools, you must first build a version of the `.deb` package that has the required libraries embedded within it.
-
-    *   **Apply the patch:**
-        ```bash
-        git apply scripts/compile_jgprogresshud.patch
-        ```
-
-    *   **Build the tweak:**
-        ```bash
-        make package
-        ```
-
-    *   **Revert the patch (optional but recommended):**
-        ```bash
-        git apply -R scripts/compile_jgprogresshud.patch
-        ```
-
-2.  **Inject the tweak with TrollFools:**
-
-    Once you have the `.deb` file, you can use TrollFools to inject it into the TikTok IPA.
-
-### Method 2: Sideloading with LiveContainer
-
-This method uses a sideloading tool like [AltStore](https://altstore.io/) or [SideStore](https://sidestore.io/) to install a special container app called [LiveContainer](https://github.com/34306/LiveContainer). You will then use the `ipa_packager.py` script to create a patched IPA that can be run inside LiveContainer.
-
-**Steps:**
-
-1.  **Install LiveContainer:**
-
-    Use AltStore (2.0+) or SideStore (0.6.0+) to install LiveContainer on your device.
-
-2.  **Create a patched IPA:**
-
-    This project includes a Python script that automates the process of patching a decrypted IPA with this tweak.
-
-    *   **Prerequisites:**
-        *   Python 3
-        *   A decrypted IPA file of TikTok.
-
-    *   **Usage:**
-        The `ipa_packager.py` script is located in the `scripts/` directory. It can be used in two ways:
-
-        *   **Build the tweak locally and patch the IPA (recommended):**
-            ```bash
-            python3 scripts/ipa_packager.py --ipa <URL or local path to decrypted IPA>
-            ```
-
-        *   **Use a pre-built tweak to patch the IPA:**
-            ```bash
-            python3 scripts/ipa_packager.py --ipa <URL or local path to decrypted IPA> --tweak_url <URL to .deb file>
-            ```
-
-3.  **Run the patched IPA in LiveContainer:**
-
-    Once you have the patched IPA, you can run it inside the LiveContainer app.
-
-### Building the Tweak with Embedded Libraries
-
-By default, this project links against the `JGProgressHUD` library, which is expected to be installed on your device separately. If you prefer to build a version of the tweak with this library embedded directly into the `.deb` package, you can do so by applying a patch before building.
-
-This method is useful for creating a more portable package that doesn't rely on external dependencies.
-
-**Steps:**
-
-1.  **Apply the patch:**
-    ```bash
-    git apply scripts/compile_jgprogresshud.patch
-    ```
-
-2.  **Build the tweak:**
-    ```bash
-    make package
-    ```
-
-3.  **Revert the patch (optional but recommended):**
-    ```bash
-    git apply -R scripts/compile_jgprogresshud.patch
-    ```
-
-### Building from Source
-
-For this method, you will need a development environment with Theos set up. Follow these comprehensive setup steps:
-
-#### 1. Prerequisites Setup
-
-```bash
-# Install full Xcode from App Store (required - Command Line Tools alone are insufficient)
-# After installation, accept the license:
-sudo xcodebuild -license accept
-
-# Verify Xcode installation
-xcode-select --print-path
-```
-
-#### 2. Theos Installation
-
-```bash
-# Install Theos using the official installation script
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
-
-# The script will automatically:
-# - Install Theos to /opt/theos
-# - Set up environment variables
-# - Configure your shell profile
-
-# Verify installation
-echo $THEOS
-# Should output: /opt/theos
-
-# Restart your terminal or source your shell profile
-source ~/.zshrc  # or ~/.bash_profile for bash users
-```
-
-#### 3. Project Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/kunihir0/BHTikTokPlusPlusPlus.git
-cd BHTikTokPlusPlusPlus
-
-# Add upstream remote (if working with a fork)
-git remote add upstream https://github.com/kunihir0/BHTikTokPlusPlusPlus.git
-
-# Install dependencies and build
-make clean && make
-```
-
-#### 4. Device Configuration
-
-```bash
-# Configure your test device
-export THEOS_DEVICE_IP=YOUR_DEVICE_IP
-export THEOS_DEVICE_USER=root
-
-# Test connection
-ssh root@$THEOS_DEVICE_IP "echo 'Connection successful'"
-```
-
-#### 5. Build and Install
-
-```bash
-# Build and install the tweak to your device
-make install
-
-# Alternatively, create a package first
-make package
-
-# Then install manually
-make install
-```
-
-#### 6. Building for different architectures
-
-To build for a specific architecture, you can use the `THEOS_PACKAGE_SCHEME` and `ARCHS` environment variables. For example, to build for rootless, you would use the following command:
-
-```bash
-make package THEOS_PACKAGE_SCHEME=rootless ARCHS=arm64
-```
-
-To build for roothide, you would use the following command:
-
-```bash
-make package THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
-```
-
-#### 6. Final Steps
-
-1. **Restart the TikTok application** after installation
-2. **Verify installation** by checking TikTok settings for BHTikTok++ options
-
-## Configuration
-
-1. Open TikTok → Profile → Settings
-2. Find "DouX settings" in the Account section
-3. Configure your preferred features
-
-## Contributing
-
-We welcome contributions! Please check our [Contributing Guide](CONTRIBUTING.md) for details including building the source.
-
-## Documentation
-
-- **[Full Feature List](docs/)** - Complete documentation of all features
-- **[API Documentation](docs/core/)** - Technical implementation details
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Disclaimer
-
-This tweak is for educational purposes. Users are responsible for complying with TikTok's Terms of Service.
-
----
-
-**For detailed documentation and advanced features, visit the [`docs/`](docs/) directory.**
+# CleanIdentity — standalone TikTok identity hiding
+
+This **experimental clean branch** builds only our custom UI-hiding tweak. It
+does **not** build, inject or use the original DouX tweak, ASJTok, login
+diagnostics, login compatibility hooks, network modifiers, region spoofing,
+downloaders or any other enhancements. The repository still contains upstream
+source files, but the branch's `Makefile` compiles **only**:
+
+- `clean_identity/identity.x`
+- `clean_identity/CleanIdentityPrefs.m`
+
+The resulting injected library is **CleanIdentity.dylib**. Its code was adapted
+from the identity UI work on our earlier branch and renamed to avoid linking
+the previous DouX manager.
+
+## Features (enabled by default)
+
+- Hide usernames displayed on videos.
+- Hide video creators' avatars and follow/profile-photo widgets.
+- Hide commenter/reply usernames.
+- Hide comment avatars, including compact "creator liked" portrait badges.
+- Remove visible `@mentions` from comment labels while preserving the
+  underlying original comment text/data.
+- Hide the music disc on the video UI.
+- Reapply hiding when cells are first laid out, reloaded, or recycled.
+
+Five internal `NSUserDefaults` flags default to `YES`, and there is
+intentionally no extra settings panel or login injection. The tweak does not
+intercept passwords, Google OAuth callbacks, app entitlements or TikTok APIs.
+
+## Build using your OWN clean decrypted IPA
+
+Open the workflow **Clean TikTok + Identity Only** under GitHub Actions, select
+`feature/clean-tiktok-identity-only-20261122`, then click **Run workflow**.
+
+- `ipa_url`: a direct downloadable **clean, decrypted** TikTok IPA URL, not
+  DouX/ASJTok or any already-modded build. Source version such as 47.8.0 is
+  read from the IPA, not hardcoded.
+- `source_bundle_id`: optional — use to reject an IPA whose bundle ID isn't
+  the expected clean TikTok ID; leave blank otherwise.
+
+The workflow compiles our standalone tweak from source, checks that the input
+is a TikTok IPA and contains none of the known extra third-party tweak dylibs,
+then uses `ivinject` to inject **only CleanIdentity.deb**. It validates that
+the app's Bundle ID and version are unchanged and that the new
+`CleanIdentity.dylib` was injected. No original DouX or ASJTok library is
+requested or inserted. The IPA is uploaded as a private-to-workflow GitHub
+Actions artifact for you to download and sign in ESign.
+
+Without a clean IPA URL, automatic push builds compile and validate the
+standalone `.deb` only; they cannot create the final IPA.
+
+## ESign and the App Store TikTok
+
+To install alongside the official App Store TikTok, you may need to choose a
+different Bundle ID, such as `com.zhiliaoapp.musicallyx`, **during ESign
+signing**. Leave URL schemes enabled and use a certificate/provisioning profile
+that authorizes the chosen App ID. Do not uninstall or overwrite the official
+TikTok, and do not install over it.
+
+Important: TikTok or Google may still reject a side-loaded, re-signed or
+re-bundled application. **CleanIdentity does not bypass server-side app
+identity, integrity, account restrictions or OAuth policies.** Even successful
+IPA compilation is not proof that sign-in will work or every UI hook will
+match the TikTok build on the user's device.
+
+When verifying functionality, check both video and comment screens for first
+render, scrolling, replies, creator-like badges and recycled cells. If a
+specific UI component does not hide as expected, it may require updating the
+appropriate UI hook for that TikTok version, not changing login.
+
+This branch leaves all other experimental branches unchanged.

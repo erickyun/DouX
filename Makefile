@@ -1,21 +1,15 @@
-TARGET := iphone:clang:latest:15.4
+TARGET := iphone:clang:latest:15.0
+ARCHS := arm64
 INSTALL_TARGET_PROCESSES = TikTok
-THEOS_DEVICE_IP = 192.168.1.119
 
+# A standalone UI-only tweak: no DouX source, networking hooks, Safari hooks,
+# authentication handling, diagnostics or other TikTok modifications.
+LOGOS_DEFAULT_GENERATOR = internal
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = DouX
-
-DouX_LIBRARIES = JGProgressHUD
-DouX_FILES = Tweak.x $(wildcard hooks/*.x) DouXDownload.m DouXManager.m DouXMultipleDownload.m SecurityViewController.m VaultMediaItem.m VaultManager.m VaultViewController.m PhotoViewController.m CreatorFilterViewController.m ContentTypeFilterViewController.m FilterViewController.m $(wildcard Settings/*.m)
-DouX_FRAMEWORKS = UIKit Foundation CoreGraphics Photos CoreServices SystemConfiguration SafariServices Security QuartzCore Photos
-DouX_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-unused-value -Wno-deprecated-declarations -Wno-nullability-completeness -Wno-unused-function -Wno-incompatible-pointer-types -I./libs/JGProgressHUD
+TWEAK_NAME = CleanIdentity
+CleanIdentity_FILES = clean_identity/identity.x clean_identity/CleanIdentityPrefs.m
+CleanIdentity_CFLAGS = -fobjc-arc -Wno-unused-function -Wno-deprecated-declarations -Wno-nullability-completeness
+CleanIdentity_FRAMEWORKS = Foundation UIKit QuartzCore CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-
-# --- Add this line at the end ---
-include $(THEOS_MAKE_PATH)/aggregate.mk
-
-before-all::
-	@$(MAKE) -C libs/JGProgressHUD THEOS_PACKAGE_SCHEME=$(THEOS_PACKAGE_SCHEME)
-	@$(MAKE) -C libs/JGProgressHUD stage THEOS_PACKAGE_SCHEME=$(THEOS_PACKAGE_SCHEME)
