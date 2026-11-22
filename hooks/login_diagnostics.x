@@ -20,12 +20,14 @@ void DouXLoginDiagnosticsRecord(NSString *event) {
     // Never store usernames, raw URLs, query parameters, error descriptions,
     // cookies, OAuth codes, authorization headers or login tokens.
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSArray *previous = [defaults arrayForKey:kDouXLoginEventsKey] ?: @[];
-    NSMutableArray *events = [previous mutableCopy];
-    NSString *entry = [NSString stringWithFormat:@"%@ | %@", [NSDate date], event];
-    [events addObject:entry];
-    while (events.count > 60) [events removeObjectAtIndex:0];
-    [defaults setObject:events forKey:kDouXLoginEventsKey];
+    @synchronized (defaults) {
+        NSArray *previous = [defaults arrayForKey:kDouXLoginEventsKey] ?: @[];
+        NSMutableArray *events = [previous mutableCopy];
+        NSString *entry = [NSString stringWithFormat:@"%@ | %@", [NSDate date], event];
+        [events addObject:entry];
+        while (events.count > 150) [events removeObjectAtIndex:0];
+        [defaults setObject:events forKey:kDouXLoginEventsKey];
+    }
 }
 
 static NSString *DouXLoginURLClass(NSURL *URL) {
@@ -58,10 +60,16 @@ static NSString *DouXLoginReport(void) {
         @"Registered URL schemes: %lu\n"
         @"Login compatibility: %@\n"
         @"Events: %lu\n\n%@\n\n"
+        @"Environment check:\n%@\n\n"
+        @"Network self-check:\n%@\n\n"
+        @"Timeline:\n%@\n\n"
         @"Only event categories are captured; no full URLs, passwords or tokens.",
          bundleID, version, (unsigned long)schemeCount,
          [[NSUserDefaults standardUserDefaults] boolForKey:@"login_compat_mode"] ? @"ON" : @"OFF",
          (unsigned long)events.count,
+         DouXLoginAssessment(events),
+         DouXLoginEnvironmentReport(),
+         DouXLoginSelfCheckResult(),
          [events componentsJoinedByString:@"\n"]];
 }
 
@@ -95,13 +103,20 @@ void DouXLoginDiagnosticsShow(void) {
     NSArray *recent = (events.count > 7)
         ? [events subarrayWithRange:NSMakeRange(events.count - 7, 7)] : events;
     NSString *preview = [NSString stringWithFormat:
-        @"Recent events (%lu):\n%@\n\nTap Copy to share the full report.",
+        @"Assessment:\n%@\n\nConnectivity:\n%@\n\nRecent events (%lu):\n%@\n\n"
+        @"Run Full Check tests web access and signing metadata without signing in.",
+        DouXLoginAssessment(events),
+        DouXLoginSelfCheckResult(),
         (unsigned long)events.count,
         recent.count ? [recent componentsJoinedByString:@"\n"] : @"No events yet"];
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:@"DouX Login Diagnostics"
                         message:preview
                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Run Full Check"
+        style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        DouXLoginRunFullCheck();
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Copy Report"
         style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [UIPasteboard generalPasteboard].string = fullReport;
@@ -264,6 +279,25 @@ static void DouXInstallCurrentCallbackProbes(void) {
 // This callback is delivered directly to the ASWebAuthenticationSession
 // completion handler in many login flows, not to UIApplicationDelegate.
 // Record only completion status; never read or persist the callback URL.
+static BOOL DouXLoginCallbackHasParameter(NSURL *url, NSString *key) {
+    if (!url || !key) return NO;
+    NSURLComponents *parts = [NSURLComponents componentsWithURL:url
+                                       resolvingAgainstBaseURL:NO];
+    for (NSURLQueryItem *item in parts.queryItems) {
+        if ([item.name.lowercaseString isEqualToString:key]) return YES;
+    }
+    // OAuth providers sometimes use URL fragments instead of the query.
+    // Only inspect parameter NAMES; never retain or log their values.
+    NSString *fragment = parts.fragment ?: @"";
+    for (NSString *part in [fragment componentsSeparatedByString:@"&"]) {
+        NSRange equals = [part rangeOfString:@"="];
+        NSString *name = (equals.location == NSNotFound) ? part :
+            [part substringToIndex:equals.location];
+        if ([name.lowercaseString isEqualToString:key]) return YES;
+    }
+    return NO;
+}
+
 static void DouXLoginRecordAuthResult(NSURL *callbackURL, NSError *error) {
     if (error) {
         // Error codes are not credentials; avoid persisting localized
@@ -274,9 +308,31 @@ static void DouXLoginRecordAuthResult(NSURL *callbackURL, NSError *error) {
             @"web_auth_completed_error_%@_%ld", kind, (long)error.code]);
     } else if (callbackURL) {
         DouXLoginDiagnosticsRecord(@"web_auth_completed_callback_received");
+        if (DouXLoginCallbackHasParameter(callbackURL, @"error") ||
+            DouXLoginCallbackHasParameter(callbackURL, @"error_code")) {
+            DouXLoginDiagnosticsRecord(@"web_auth_completed_oauth_error");
+        } else if (DouXLoginCallbackHasParameter(callbackURL, @"code") ||
+                   DouXLoginCallbackHasParameter(callbackURL, @"auth_code")) {
+            DouXLoginDiagnosticsRecord(@"web_auth_completed_authorization_code");
+        } else {
+            DouXLoginDiagnosticsRecord(@"web_auth_completed_callback_without_code_or_error");
+        }
     } else {
         DouXLoginDiagnosticsRecord(@"web_auth_completed_without_callback");
     }
+}
+
+static BOOL DouXLoginCallbackSchemeRegistered(NSString *scheme) {
+    if (!scheme.length) return NO;
+    NSDictionary *info = [NSBundle mainBundle].infoDictionary;
+    NSArray *types = info[@"CFBundleURLTypes"];
+    for (NSDictionary *item in types) {
+        for (NSString *entry in item[@"CFBundleURLSchemes"]) {
+            if ([entry caseInsensitiveCompare:scheme] == NSOrderedSame)
+                return YES;
+        }
+    }
+    return NO;
 }
 
 %hook ASWebAuthenticationSession
@@ -284,6 +340,12 @@ static void DouXLoginRecordAuthResult(NSURL *callbackURL, NSError *error) {
           callbackURLScheme:(NSString *)callbackURLScheme
           completionHandler:(void (^)(NSURL *, NSError *))completionHandler {
     DouXLoginDiagnosticsRecord(@"web_auth_legacy_initializer");
+    if (callbackURLScheme.length) {
+        DouXLoginDiagnosticsRecord(
+            DouXLoginCallbackSchemeRegistered(callbackURLScheme)
+                ? @"web_auth_callback_scheme_registered"
+                : @"web_auth_callback_scheme_not_registered");
+    }
     if (!completionHandler) return %orig(URL, callbackURLScheme, completionHandler);
     void (^wrapped)(NSURL *, NSError *) = ^(NSURL *callbackURL, NSError *error) {
         DouXLoginRecordAuthResult(callbackURL, error);
