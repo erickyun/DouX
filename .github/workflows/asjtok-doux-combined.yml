@@ -109,16 +109,16 @@ jobs:
           sudo mv ivinject-arm64 /usr/local/bin/
           sudo chmod +x /usr/local/bin/ivinject-arm64
 
-      - name: Combine ASJTok and DouX
+      - name: Combine ASJTok and DouX (leave final signing to ESign)
         env:
           SOURCE_MODE: ${{ inputs.source || 'official_asjtok_47_6' }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$SOURCE_MODE" == "official_asjtok_47_6" ]]; then
-            ivinject-arm64 base.ipa ASJTok-DouX-combined.ipa -i DouX.deb -s - -d --level Optimal
+            ivinject-arm64 base.ipa ASJTok-DouX-combined.ipa -i DouX.deb -d --level Optimal
           else
-            ivinject-arm64 base.ipa ASJTok-DouX-combined.ipa -i DouX.deb ASJTok.dylib -s - -d --level Optimal
+            ivinject-arm64 base.ipa ASJTok-DouX-combined.ipa -i DouX.deb ASJTok.dylib -d --level Optimal
           fi
 
       - name: Verify combined IPA and version
@@ -139,7 +139,7 @@ jobs:
               if old.get(key)!=new.get(key): raise ValueError("Unexpected change: "+key)
           dylibs=[p.lower() for p in names if p.lower().endswith(".dylib")]
           if not any("doux" in p for p in dylibs): raise ValueError("DouX not injected")
-          if not any("asjtok" in p for p in dylibs): raise ValueError("ASJTok not present")
+          if not any(("asjtok" in p or "asjtiktok" in p) for p in dylibs): raise ValueError("ASJTok not present")
           print("Both tweaks present; TikTok version:",new.get("CFBundleShortVersionString"))
           print("Bundle ID preserved:",new.get("CFBundleIdentifier"))
           print("This does NOT verify either tweak runs or that Google login succeeds.")
