@@ -74,7 +74,7 @@
         case 0: return 20;
         case 1: return 4;
         case 2: return 4;
-        case 3: return 10;
+        case 3: return 11;
         case 4: return 2;
         case 5: return 2;
         case 6: return 2;
@@ -135,6 +135,7 @@
             case 7: return [self createSwitchCellWithTitle:@"Upload HD" Detail:@"Upload videos in HD quality" Key:@"upload_hd"];
             case 8: return [self createSwitchCellWithTitle:@"App Lock" Detail:@"Lock the app with a passcode" Key:@"padlock"];
             case 9: return [self createSwitchCellWithTitle:@"Enable Flex" Detail:@"Developers Only, DON'T touch it if you don't know what you are doing." Key:@"flex_enabled"];
+            case 10: return [self createSwitchCellWithTitle:@"Login Compatibility Mode" Detail:@"Keep TikTok's built-in login and 2FA flow; disable DouX Safari redirects and region spoofing while enabled. Restart TikTok after changing." Key:@"login_compat_mode"];
         }
     } else if (indexPath.section == 4) {
         if (indexPath.row == 0) {
