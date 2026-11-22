@@ -91,3 +91,34 @@ URL schemes. On-device events are retained in NSUserDefaults until cleared.
 
 The probes **never** alter login parameters, move Safari cookies into TikTok,
 inject session credentials, or bypass TikTok's authentication checks.
+
+## Diagnostic update: authentication completion outcome
+
+This branch also instruments the **completion handler** of both supported
+`ASWebAuthenticationSession` initialization styles. App/scene delegate
+callbacks alone are insufficient: AuthenticationServices can deliver the
+result directly to its own completion handler.
+
+Additional sanitized event categories:
+
+- `web_auth_legacy_initializer` / `web_auth_modern_initializer`: which API started authentication.
+- `web_auth_start_accepted` / `web_auth_start_rejected`: whether `start` was accepted.
+- `web_auth_completed_callback_received`: a callback URL reached the
+  authentication completion handler (the URL itself is **never logged**).
+- `web_auth_completed_error_...`: completion failed with a numeric error
+  code. No error description, credentials or URL are saved.
+- `web_auth_completed_without_callback`: the handler ran without callback
+  or NSError.
+
+If login fails after `web_auth_completed_callback_received`, investigate
+TikTok's own post-OAuth login exchange and signing/entitlements rather than
+assuming Safari return failed. If no completion appears, compare the browser
+state and the unmodified IPA before interpreting missing events.
+
+**Report observed on 22 Nov 2026 for TikTok 47.8.0:** the older build recorded
+`web_auth_session_started` and `in_app_safari_displayed`, but it did not
+observe an incoming app callback. This is inconclusive because the old
+diagnostics did not capture `ASWebAuthenticationSession` completion.
+
+Use a freshly built IPA from this branch to collect a new report. Do not
+interpret previous reports using these newer event categories.
