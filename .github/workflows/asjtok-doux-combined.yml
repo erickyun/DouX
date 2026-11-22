@@ -1,6 +1,11 @@
 name: ASJTok + DouX Combined IPA
 
 on:
+  push:
+    branches:
+      - feature/asjtok-doux-combined-20261122
+    paths:
+      - '.github/workflows/asjtok-doux-combined.yml'
   workflow_dispatch:
     inputs:
       source:
@@ -34,7 +39,7 @@ jobs:
 
       - name: Fetch official ASJTok base or custom TikTok
         env:
-          SOURCE_MODE: ${{ inputs.source }}
+          SOURCE_MODE: ${{ inputs.source || 'official_asjtok_47_6' }}
           USER_IPA_URL: ${{ inputs.ipa_url }}
         shell: bash
         run: |
@@ -106,7 +111,7 @@ jobs:
 
       - name: Combine ASJTok and DouX
         env:
-          SOURCE_MODE: ${{ inputs.source }}
+          SOURCE_MODE: ${{ inputs.source || 'official_asjtok_47_6' }}
         shell: bash
         run: |
           set -euo pipefail
