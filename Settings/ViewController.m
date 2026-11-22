@@ -75,7 +75,7 @@
         case 0: return 20;
         case 1: return 4;
         case 2: return 4;
-        case 3: return 12;
+        case 3: return 13;
         case 4: return 2;
         case 5: return 2;
         case 6: return 2;
@@ -137,7 +137,8 @@
             case 8: return [self createSwitchCellWithTitle:@"App Lock" Detail:@"Lock the app with a passcode" Key:@"padlock"];
             case 9: return [self createSwitchCellWithTitle:@"Enable Flex" Detail:@"Developers Only, DON'T touch it if you don't know what you are doing." Key:@"flex_enabled"];
             case 10: return [self createSwitchCellWithTitle:@"Login Compatibility Mode" Detail:@"Keep TikTok's built-in login and 2FA flow; disable DouX Safari redirects and region spoofing while enabled. Restart TikTok after changing." Key:@"login_compat_mode"];
-            case 11: return [self createLinkCellWithTitle:@"View Login Diagnostics" Detail:@"Shows recent authentication handoffs without recording passwords or tokens; can also be opened by shaking iPhone." Image:@"doc.text.magnifyingglass"];
+            case 11: return [self createLinkCellWithTitle:@"View Login Diagnostics" Detail:@"Shows login results, signing status and one-tap network self-check. Open by shaking iPhone while logged out." Image:@"doc.text.magnifyingglass"];
+            case 12: return [self createSwitchCellWithTitle:@"Login Safe Mode" Detail:@"ON: temporarily suppress other DouX tweaks during sign-in. OFF: restore your saved avatar, username and other settings. Restart TikTok after changing." Key:@"login_isolation_mode"];
         }
     } else if (indexPath.section == 4) {
         if (indexPath.row == 0) {
